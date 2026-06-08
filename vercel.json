@@ -1,5 +1,5 @@
 {
   "rewrites": [
-    { "source": "/(.*)", "destination": "/prediction_market_site.html" }
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
