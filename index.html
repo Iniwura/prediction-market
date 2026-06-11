@@ -6,18 +6,18 @@
 <title>Gen Markets — On-Chain Prediction Markets</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
 <style>
-:root {
-  --blue:#110FFF; --navy:#282B5D; --purple:#BCA2FF;
-  --yes:#110FFF; --no:#E8003D;
-  --bg:#FFFFFF; --bg2:#F4F4F9; --card:#FFFFFF;
-  --border:#E2E2EE; --text:#0A0A1A; --text2:#44447A; --muted:#8888BB;
-  --hbg:rgba(255,255,255,.95); --grid:rgba(17,15,255,.03);
+:root{
+  --blue:#110FFF;--navy:#282B5D;--purple:#BCA2FF;
+  --yes:#110FFF;--no:#E8003D;
+  --bg:#FFF;--bg2:#F4F4F9;--card:#FFF;
+  --border:#E2E2EE;--text:#0A0A1A;--text2:#44447A;--muted:#8888BB;
+  --hbg:rgba(255,255,255,.96);--grid:rgba(17,15,255,.03);
   --shadow:0 1px 3px rgba(17,15,255,.07),0 4px 16px rgba(17,15,255,.05);
 }
 [data-theme="dark"]{
-  --bg:#000; --bg2:#0A0A18; --card:#0E0E20; --border:#1E1E3A;
-  --text:#F0F0FF; --text2:#AAAACE; --muted:#5A5A8A;
-  --hbg:rgba(0,0,0,.95); --grid:rgba(17,15,255,.06);
+  --bg:#000;--bg2:#0A0A18;--card:#0E0E20;--border:#1E1E3A;
+  --text:#F0F0FF;--text2:#AAAACE;--muted:#5A5A8A;
+  --hbg:rgba(0,0,0,.96);--grid:rgba(17,15,255,.06);
   --shadow:0 1px 3px rgba(0,0,0,.4),0 4px 16px rgba(17,15,255,.12);
 }
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box;}
@@ -32,17 +32,19 @@ header{position:sticky;top:0;z-index:200;background:var(--hbg);backdrop-filter:b
   border-bottom:1px solid var(--border);height:60px;display:flex;align-items:center;
   padding:0 clamp(1rem,4vw,2.5rem);gap:12px;transition:background .3s,border-color .3s;}
 .logo{display:flex;align-items:center;gap:8px;font-family:'Syne',sans-serif;font-weight:800;
-  font-size:.95rem;color:var(--text);text-decoration:none;letter-spacing:-.01em;flex-shrink:0;}
+  font-size:.95rem;color:var(--text);text-decoration:none;letter-spacing:-.01em;flex-shrink:0;cursor:pointer;}
 nav{display:flex;gap:2px;flex:1;}
 .nb{background:transparent;border:none;cursor:pointer;font-family:'DM Mono',monospace;
   font-size:12px;color:var(--muted);padding:6px 11px;letter-spacing:.04em;transition:color .2s;}
 .nb:hover,.nb.on{color:var(--text);}
 .nb.on{color:var(--blue);}
 .hr{display:flex;align-items:center;gap:8px;margin-left:auto;}
-.net-pill{display:none;align-items:center;gap:6px;background:var(--bg2);border:1px solid var(--border);
-  padding:4px 10px;font-size:11px;color:var(--muted);}
-.net-pill.show{display:flex;}
-.net-pill .addr{color:var(--blue);font-size:11px;}
+
+/* WALLET PILL — clickable to open profile */
+.wpill{display:none;align-items:center;gap:7px;background:var(--bg2);border:1px solid var(--border);
+  padding:5px 12px;font-size:11px;color:var(--text);cursor:pointer;transition:border-color .2s;}
+.wpill:hover{border-color:var(--blue);}
+.wpill.show{display:flex;}
 .dot{width:6px;height:6px;border-radius:50%;background:var(--blue);box-shadow:0 0 6px var(--blue);animation:pulse 2s ease-in-out infinite;}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
 .tbtn{background:var(--bg2);border:1px solid var(--border);color:var(--muted);font-size:14px;
@@ -52,7 +54,7 @@ nav{display:flex;gap:2px;flex:1;}
 /* PAGES */
 .page{display:none;position:relative;z-index:1;}
 .page.on{display:block;}
-.inner{max-width:860px;margin:0 auto;padding:clamp(2rem,4vw,3rem) clamp(1rem,4vw,2rem);}
+.inner{max-width:900px;margin:0 auto;padding:clamp(2rem,4vw,3rem) clamp(1rem,4vw,2rem);}
 
 /* HERO */
 .hero{text-align:center;padding:clamp(3rem,8vw,6rem) clamp(1rem,4vw,2rem) clamp(2rem,5vw,3rem);max-width:780px;margin:0 auto;}
@@ -66,7 +68,7 @@ nav{display:flex;gap:2px;flex:1;}
 .hbtns{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
 
 /* HOW IT WORKS */
-.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1px;
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:1px;
   background:var(--border);border:1px solid var(--border);margin:0 clamp(1rem,4vw,2.5rem) clamp(2rem,5vw,3rem);}
 .step{background:var(--card);padding:22px 18px;transition:background .3s;}
 .sn{font-family:'Syne',sans-serif;font-weight:800;font-size:2rem;color:var(--blue);opacity:.25;line-height:1;margin-bottom:8px;}
@@ -82,38 +84,41 @@ nav{display:flex;gap:2px;flex:1;}
 .boutline:hover{border-color:var(--blue);color:var(--blue);}
 .btn:disabled{opacity:.3;cursor:not-allowed;}
 .bconn{background:var(--blue);border:none;color:#fff;font-family:'Syne',sans-serif;font-weight:700;
-  font-size:11px;letter-spacing:.12em;text-transform:uppercase;padding:8px 18px;cursor:pointer;
-  transition:opacity .2s;white-space:nowrap;}
+  font-size:11px;letter-spacing:.12em;text-transform:uppercase;padding:8px 18px;cursor:pointer;transition:opacity .2s;white-space:nowrap;}
 .bconn:hover{opacity:.85;}
 .bdis{background:transparent;border:1.5px solid var(--no);color:var(--no);font-family:'Syne',sans-serif;
   font-weight:700;font-size:10px;letter-spacing:.08em;text-transform:uppercase;padding:6px 12px;cursor:pointer;}
+.bdis:hover{background:var(--no);color:#fff;}
 
-/* PANEL / CARD */
-.panel{background:var(--card);border:1px solid var(--border);padding:clamp(1.2rem,3vw,1.8rem);
-  margin-bottom:1.2rem;box-shadow:var(--shadow);transition:background .3s,border-color .3s;}
-.mkt-card{background:var(--card);border:1px solid var(--border);padding:clamp(1.4rem,3vw,2rem);
-  margin-bottom:1.2rem;position:relative;overflow:hidden;box-shadow:var(--shadow);
-  transition:background .3s,border-color .3s;}
-.mkt-card::after{content:'';position:absolute;top:0;left:0;right:0;height:3px;
-  background:linear-gradient(90deg,var(--blue),var(--purple));}
+/* MARKET CARDS — bigger */
+.mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;margin-bottom:2rem;}
+.mc{background:var(--card);border:1px solid var(--border);padding:22px;position:relative;overflow:hidden;
+  box-shadow:var(--shadow);transition:transform .18s,box-shadow .18s,background .3s;cursor:pointer;}
+.mc::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;background:linear-gradient(90deg,var(--blue),var(--purple));}
+.mc:hover{transform:translateY(-2px);box-shadow:0 4px 20px rgba(17,15,255,.12);}
+.ms{font-size:10px;color:var(--blue);letter-spacing:.12em;text-transform:uppercase;margin-bottom:10px;display:flex;align-items:center;gap:6px;}
+.mq{font-family:'Syne',sans-serif;font-weight:700;font-size:1.05rem;color:var(--text);
+  line-height:1.35;margin-bottom:14px;letter-spacing:-.02em;}
+.mbar{height:6px;background:rgba(232,0,61,.15);margin-bottom:6px;border-radius:3px;overflow:hidden;}
+.mfill{height:100%;background:var(--blue);border-radius:3px;transition:width .8s cubic-bezier(.16,1,.3,1);}
+.mmeta{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:14px;}
+.mc-btns{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:4px;}
+.mc-bet{padding:9px;border:1.5px solid;background:transparent;font-family:'Syne',sans-serif;
+  font-weight:700;font-size:11px;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;transition:all .18s;}
+.mc-bet.yes{border-color:var(--yes);color:var(--yes);}
+.mc-bet.yes:hover,.mc-bet.yes.won{background:var(--yes);color:#fff;}
+.mc-bet.no{border-color:var(--no);color:var(--no);}
+.mc-bet.no:hover,.mc-bet.no.won{background:var(--no);color:#fff;}
+.mc-bet:disabled{opacity:.25;cursor:not-allowed;}
+
+/* PANEL */
+.panel{background:var(--card);border:1px solid var(--border);padding:clamp(1.4rem,3vw,2rem);
+  margin-bottom:1.5rem;box-shadow:var(--shadow);transition:background .3s,border-color .3s;}
 
 /* SECTION TITLE */
 .sectitle{font-family:'Syne',sans-serif;font-size:10px;font-weight:700;letter-spacing:.2em;
   text-transform:uppercase;color:var(--muted);margin-bottom:1rem;display:flex;align-items:center;gap:10px;}
 .sectitle::after{content:'';flex:1;height:1px;background:var(--border);}
-
-/* MARKETS GRID */
-.mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:1px;
-  background:var(--border);border:1px solid var(--border);margin-bottom:1.2rem;}
-.mc{background:var(--card);padding:18px;position:relative;overflow:hidden;transition:background .18s;}
-.mc::before{content:'';position:absolute;top:0;left:0;width:3px;height:100%;background:var(--blue);}
-.mc:hover{background:var(--bg2);}
-.ms{font-size:10px;color:var(--blue);letter-spacing:.12em;text-transform:uppercase;margin-bottom:8px;}
-.mq{font-family:'Syne',sans-serif;font-weight:700;font-size:.9rem;color:var(--text);
-  line-height:1.3;margin-bottom:8px;letter-spacing:-.01em;}
-.mbar{height:4px;background:rgba(232,0,61,.15);margin-bottom:5px;position:relative;}
-.mfill{height:100%;background:var(--blue);}
-.mmeta{display:flex;justify-content:space-between;font-size:10px;color:var(--muted);}
 
 /* PILL */
 .pill{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-weight:600;
@@ -126,17 +131,16 @@ nav{display:flex;gap:2px;flex:1;}
 /* VOTE BAR */
 .vwrap{margin-bottom:1.4rem;}
 .vlabels{display:flex;justify-content:space-between;font-size:12px;margin-bottom:5px;font-weight:500;}
-.lyes{color:var(--yes);}
-.lno{color:var(--no);}
-.vtrack{height:6px;background:rgba(232,0,61,.18);position:relative;overflow:hidden;}
-.vfill{height:100%;background:var(--yes);transition:width .9s cubic-bezier(.16,1,.3,1);}
+.lyes{color:var(--yes);}.lno{color:var(--no);}
+.vtrack{height:7px;background:rgba(232,0,61,.18);position:relative;overflow:hidden;border-radius:4px;}
+.vfill{height:100%;background:var(--yes);transition:width .9s cubic-bezier(.16,1,.3,1);border-radius:4px;}
 .vcounts{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:4px;}
 
 /* BET BTNS */
 .bgrid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:1rem;}
-.bbet{display:flex;flex-direction:column;align-items:center;gap:3px;padding:14px 8px;
+.bbet{display:flex;flex-direction:column;align-items:center;gap:3px;padding:16px 8px;
   border:1.5px solid;background:transparent;cursor:pointer;transition:all .18s;
-  font-family:'Syne',sans-serif;font-weight:800;font-size:1rem;letter-spacing:.05em;text-transform:uppercase;}
+  font-family:'Syne',sans-serif;font-weight:800;font-size:1.1rem;letter-spacing:.05em;text-transform:uppercase;}
 .bbet small{font-family:'DM Mono',monospace;font-size:9px;font-weight:400;letter-spacing:.1em;opacity:.65;}
 .byes{border-color:var(--yes);color:var(--yes);}
 .byes:hover,.byes.on{background:var(--yes);color:#fff;}
@@ -150,37 +154,37 @@ nav{display:flex;gap:2px;flex:1;}
 .bresolve:disabled{opacity:.2;cursor:not-allowed;}
 
 /* VERDICT */
-.verdict{margin-top:1.1rem;background:rgba(17,15,255,.05);border:1px solid rgba(17,15,255,.2);padding:14px 18px;display:none;}
+.verdict{margin-top:1.2rem;background:rgba(17,15,255,.05);border:1px solid rgba(17,15,255,.2);padding:16px 20px;display:none;}
 .verdict.show{display:block;}
 .verdict.nov{background:rgba(232,0,61,.04);border-color:rgba(232,0,61,.2);}
-.vtop{display:flex;align-items:center;gap:10px;margin-bottom:7px;}
-.vword{font-family:'Syne',sans-serif;font-weight:800;font-size:1.8rem;letter-spacing:-.03em;}
+.vtop{display:flex;align-items:center;gap:12px;margin-bottom:8px;}
+.vword{font-family:'Syne',sans-serif;font-weight:800;font-size:2rem;letter-spacing:-.03em;}
 .vyes{color:var(--yes);}.vno{color:var(--no);}
 .vconf{font-size:9px;letter-spacing:.15em;text-transform:uppercase;padding:2px 8px;border:1px solid var(--purple);color:var(--purple);}
-.vtext{font-size:11px;color:var(--text2);line-height:1.75;}
+.vtext{font-size:12px;color:var(--text2);line-height:1.75;}
 
 /* TX LOG */
 .txlog{background:var(--bg2);border:1px solid var(--border);border-left:3px solid var(--blue);
-  padding:10px 14px;margin-bottom:1.2rem;max-height:130px;overflow-y:auto;font-size:11px;transition:background .3s;}
+  padding:10px 14px;margin-bottom:1.5rem;max-height:120px;overflow-y:auto;font-size:11px;transition:background .3s;}
 .txe{display:flex;gap:10px;padding:3px 0;line-height:1.5;}
 .txt{color:var(--muted);flex-shrink:0;}
 .txm{color:var(--text2);flex:1;}
 .txm.ok{color:var(--blue);}.txm.err{color:var(--no);}.txm.inf{color:var(--purple);}
 
 /* FORM */
-.ff{margin-bottom:12px;}
+.ff{margin-bottom:14px;}
 .fl{display:block;font-size:10px;letter-spacing:.15em;text-transform:uppercase;color:var(--muted);margin-bottom:5px;}
 .fi{width:100%;background:var(--bg2);border:1px solid var(--border);color:var(--text);
-  font-family:'DM Mono',monospace;font-size:12px;padding:9px 12px;outline:none;transition:border-color .2s;}
+  font-family:'DM Mono',monospace;font-size:12px;padding:10px 14px;outline:none;transition:border-color .2s;}
 .fi:focus{border-color:var(--blue);}
 .fi::placeholder{color:var(--muted);font-size:11px;}
 
 /* LEADERBOARD */
-.lbrow{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:11px;}
+.lbrow{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border);font-size:11px;}
 .lbrow:last-child{border-bottom:none;}
 .lbrank{font-family:'Syne',sans-serif;font-weight:700;font-size:11px;color:var(--muted);min-width:20px;}
 .lbaddr{flex:1;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
-.lbside{font-size:10px;padding:2px 7px;font-weight:600;}
+.lbside{font-size:10px;padding:2px 8px;font-weight:600;}
 .swon{background:rgba(17,15,255,.1);color:var(--blue);}
 .slost{background:rgba(232,0,61,.08);color:var(--no);}
 .spend{background:var(--bg2);color:var(--muted);}
@@ -189,22 +193,20 @@ nav{display:flex;gap:2px;flex:1;}
 .phero{background:linear-gradient(135deg,var(--navy),var(--blue));
   padding:clamp(2rem,5vw,3rem) clamp(1rem,4vw,2.5rem);display:flex;align-items:center;gap:20px;flex-wrap:wrap;}
 .pav{width:72px;height:72px;border-radius:50%;background:rgba(255,255,255,.15);
-  display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;position:relative;cursor:pointer;}
-.pav img{width:100%;height:100%;object-fit:cover;border-radius:50%;}
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;position:relative;cursor:pointer;}
 .pav-overlay{position:absolute;inset:0;background:rgba(0,0,0,.5);border-radius:50%;
-  display:none;align-items:center;justify-content:center;font-size:10px;color:#fff;text-align:center;}
+  display:none;align-items:center;justify-content:center;font-size:10px;color:#fff;}
 .pav:hover .pav-overlay{display:flex;}
 .pinfo{flex:1;min-width:180px;}
 .pname{font-family:'Syne',sans-serif;font-weight:800;font-size:clamp(1.2rem,3vw,1.8rem);
   color:#fff;letter-spacing:-.03em;margin-bottom:3px;}
-.paddr{font-size:11px;color:rgba(255,255,255,.55);letter-spacing:.04em;margin-bottom:10px;
-  word-break:break-all;}
+.paddr{font-size:11px;color:rgba(255,255,255,.55);letter-spacing:.04em;margin-bottom:10px;word-break:break-all;}
 .ptags{display:flex;gap:6px;flex-wrap:wrap;}
 .ptag{font-size:10px;padding:3px 10px;letter-spacing:.1em;text-transform:uppercase;
   background:rgba(255,255,255,.1);border:1px solid rgba(255,255,255,.2);color:#fff;}
 
 /* STATS */
-.srow{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:1px;
+.srow{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:1px;
   background:var(--border);border:1px solid var(--border);}
 .sbox{background:var(--card);padding:18px;text-align:center;transition:background .3s;}
 .sval{font-family:'Syne',sans-serif;font-weight:800;font-size:1.6rem;color:var(--blue);letter-spacing:-.03em;}
@@ -214,45 +216,45 @@ nav{display:flex;gap:2px;flex:1;}
 .obrow{display:flex;align-items:flex-start;justify-content:space-between;padding:12px 0;
   border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px;}
 .obrow:last-child{border-bottom:none;}
-.obq{font-family:'Syne',sans-serif;font-weight:600;font-size:.85rem;color:var(--text);}
+.obq{font-family:'Syne',sans-serif;font-weight:600;font-size:.88rem;color:var(--text);}
 .obmeta{font-size:11px;color:var(--muted);margin-top:3px;}
-
-/* MODAL */
-.modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);z-index:500;display:none;
-  align-items:center;justify-content:center;padding:1rem;}
-.modal-bg.show{display:flex;}
-.modal{background:var(--card);border:1px solid var(--border);width:100%;max-width:420px;
-  padding:clamp(1.5rem,4vw,2rem);position:relative;}
-.mclose{position:absolute;top:12px;right:12px;background:transparent;border:none;
-  font-size:20px;color:var(--muted);cursor:pointer;line-height:1;}
-.mclose:hover{color:var(--text);}
-.mtitle{font-family:'Syne',sans-serif;font-weight:800;font-size:1.1rem;color:var(--text);
-  letter-spacing:-.02em;margin-bottom:.3rem;}
-.msub{font-size:12px;color:var(--muted);margin-bottom:1.5rem;line-height:1.6;}
-.avatar-pick{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:1.2rem;}
-.avopt{width:52px;height:52px;border-radius:50%;cursor:pointer;border:3px solid transparent;
-  background:var(--bg2);display:flex;align-items:center;justify-content:center;font-size:22px;
-  transition:all .18s;}
-.avopt.sel,.avopt:hover{border-color:var(--blue);}
-
-/* GATE */
-.gate{display:flex;flex-direction:column;align-items:center;justify-content:center;
-  min-height:60vh;gap:1.2rem;padding:2rem;text-align:center;}
-.gtitle{font-family:'Syne',sans-serif;font-weight:800;font-size:1.4rem;color:var(--text);letter-spacing:-.02em;}
-.gsub{font-size:12px;color:var(--muted);max-width:300px;line-height:1.7;}
-
-/* CONTRACT INPUT */
-.cbar{background:var(--card);border:1px solid var(--border);padding:12px 16px;
-  margin-bottom:1rem;display:flex;gap:8px;align-items:center;flex-wrap:wrap;box-shadow:var(--shadow);}
-.cbar input{flex:1;min-width:180px;background:var(--bg2);border:1px solid var(--border);
-  color:var(--text);font-family:'DM Mono',monospace;font-size:12px;padding:8px 12px;outline:none;transition:border-color .2s;}
-.cbar input:focus{border-color:var(--blue);}
-.cbar input::placeholder{color:var(--muted);}
 
 /* PAGE HEADER */
 .ph{display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;flex-wrap:wrap;gap:10px;}
-.ptitle{font-family:'Syne',sans-serif;font-weight:800;font-size:clamp(1.2rem,3vw,1.6rem);
-  letter-spacing:-.03em;color:var(--text);}
+.ptitle{font-family:'Syne',sans-serif;font-weight:800;font-size:clamp(1.2rem,3vw,1.7rem);letter-spacing:-.03em;color:var(--text);}
+
+/* GATE */
+.gate{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:60vh;gap:1.2rem;padding:2rem;text-align:center;}
+.gtitle{font-family:'Syne',sans-serif;font-weight:800;font-size:1.4rem;color:var(--text);letter-spacing:-.02em;}
+.gsub{font-size:12px;color:var(--muted);max-width:300px;line-height:1.7;}
+
+/* MODALS */
+.mbg{position:fixed;inset:0;background:rgba(0,0,0,.55);z-index:500;display:none;align-items:center;justify-content:center;padding:1rem;}
+.mbg.show{display:flex;}
+.modal{background:var(--card);border:1px solid var(--border);width:100%;max-width:460px;padding:clamp(1.5rem,4vw,2rem);position:relative;max-height:90vh;overflow-y:auto;}
+.mclose{position:absolute;top:12px;right:14px;background:transparent;border:none;font-size:22px;color:var(--muted);cursor:pointer;line-height:1;}
+.mclose:hover{color:var(--text);}
+.mtitle{font-family:'Syne',sans-serif;font-weight:800;font-size:1.15rem;color:var(--text);letter-spacing:-.02em;margin-bottom:.3rem;}
+.msub{font-size:12px;color:var(--muted);margin-bottom:1.5rem;line-height:1.6;}
+.avatar-pick{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:1.2rem;}
+.avopt{width:52px;height:52px;border-radius:50%;cursor:pointer;border:3px solid transparent;
+  background:var(--bg2);display:flex;align-items:center;justify-content:center;font-size:22px;transition:all .18s;}
+.avopt.sel,.avopt:hover{border-color:var(--blue);}
+
+/* STAKE INPUT */
+.stake-display{font-family:'Syne',sans-serif;font-weight:800;font-size:2.5rem;color:var(--blue);
+  text-align:center;padding:20px 0;letter-spacing:-.04em;}
+.stake-unit{font-size:1rem;color:var(--muted);font-weight:400;}
+.stake-slider{width:100%;margin:12px 0;}
+.stake-presets{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin-bottom:16px;}
+.spreset{background:var(--bg2);border:1px solid var(--border);color:var(--text2);
+  font-family:'DM Mono',monospace;font-size:11px;padding:7px;cursor:pointer;transition:all .18s;}
+.spreset:hover,.spreset.on{background:var(--blue);border-color:var(--blue);color:#fff;}
+.bet-confirm-yes{background:var(--yes);border:none;color:#fff;width:100%;font-family:'Syne',sans-serif;
+  font-weight:700;font-size:.9rem;letter-spacing:.1em;text-transform:uppercase;padding:14px;cursor:pointer;transition:opacity .2s;margin-top:4px;}
+.bet-confirm-no{background:var(--no);border:none;color:#fff;width:100%;font-family:'Syne',sans-serif;
+  font-weight:700;font-size:.9rem;letter-spacing:.1em;text-transform:uppercase;padding:14px;cursor:pointer;transition:opacity .2s;margin-top:4px;}
+.bet-confirm-yes:hover,.bet-confirm-no:hover{opacity:.85;}
 
 /* FOOTER */
 footer{position:relative;z-index:1;border-top:1px solid var(--border);
@@ -263,59 +265,123 @@ footer a:hover{color:var(--purple);}
 
 /* TOAST */
 #toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--card);
-  border:1px solid var(--blue);color:var(--blue);padding:9px 22px;font-size:12px;letter-spacing:.04em;
+  border:1px solid var(--blue);color:var(--blue);padding:10px 24px;font-size:12px;letter-spacing:.04em;
   opacity:0;transition:opacity .3s;pointer-events:none;z-index:999;white-space:nowrap;
   max-width:90vw;text-align:center;box-shadow:var(--shadow);}
 #toast.show{opacity:1;}
 #toast.terr{border-color:var(--no);color:var(--no);}
+#toast.tok{border-color:var(--blue);color:var(--blue);}
 
 .spin{display:inline-block;animation:sp 1s linear infinite;}
 @keyframes sp{to{transform:rotate(360deg)}}
+.hint{font-size:11px;color:var(--muted);line-height:1.7;margin-top:8px;}
+.hint code{color:var(--purple);}
 
-@media(max-width:520px){.bgrid{grid-template-columns:1fr;}.phero{flex-direction:column;}}
+@media(max-width:520px){.bgrid{grid-template-columns:1fr;}.phero{flex-direction:column;}.stake-presets{grid-template-columns:repeat(2,1fr);}}
 </style>
 </head>
 <body>
 
 <!-- PROFILE SETUP MODAL -->
-<div class="modal-bg" id="setup-modal">
-  <div class="modal">
-    <button class="mclose" onclick="closeModal()">×</button>
-    <div class="mtitle">Set up your profile</div>
-    <div class="msub">Choose an avatar and enter your display name. This is stored locally on your device.</div>
-    <div class="fl">Choose Avatar</div>
-    <div class="avatar-pick" id="av-pick">
-      <div class="avopt sel" data-av="🧑‍💻" onclick="selAv(this)">🧑‍💻</div>
-      <div class="avopt" data-av="👾" onclick="selAv(this)">👾</div>
-      <div class="avopt" data-av="🦊" onclick="selAv(this)">🦊</div>
-      <div class="avopt" data-av="🐉" onclick="selAv(this)">🐉</div>
-      <div class="avopt" data-av="⚡" onclick="selAv(this)">⚡</div>
-      <div class="avopt" data-av="🔮" onclick="selAv(this)">🔮</div>
-    </div>
-    <div class="ff">
-      <label class="fl">Display Name</label>
-      <input class="fi" id="setup-name" placeholder="Enter your name" maxlength="24">
-    </div>
-    <button class="btn bsolid" style="width:100%;justify-content:center" onclick="saveProfile()">Save Profile</button>
+<div class="mbg" id="m-profile">
+<div class="modal">
+  <button class="mclose" onclick="closeModal('m-profile')">×</button>
+  <div class="mtitle">Set up your profile</div>
+  <div class="msub">Choose an avatar and display name — saved locally on your device.</div>
+  <div class="fl" style="margin-bottom:8px">Choose Avatar</div>
+  <div class="avatar-pick">
+    <div class="avopt sel" data-av="🧑‍💻" onclick="selAv(this)">🧑‍💻</div>
+    <div class="avopt" data-av="👾" onclick="selAv(this)">👾</div>
+    <div class="avopt" data-av="🦊" onclick="selAv(this)">🦊</div>
+    <div class="avopt" data-av="🐉" onclick="selAv(this)">🐉</div>
+    <div class="avopt" data-av="⚡" onclick="selAv(this)">⚡</div>
+    <div class="avopt" data-av="🔮" onclick="selAv(this)">🔮</div>
+    <div class="avopt" data-av="🚀" onclick="selAv(this)">🚀</div>
+    <div class="avopt" data-av="🎯" onclick="selAv(this)">🎯</div>
   </div>
+  <div class="ff">
+    <label class="fl">Display Name</label>
+    <input class="fi" id="setup-name" placeholder="Enter your name" maxlength="24">
+  </div>
+  <button class="btn bsolid" style="width:100%;justify-content:center" onclick="saveProfile()">Save Profile</button>
+</div>
+</div>
+
+<!-- CREATE MARKET MODAL -->
+<div class="mbg" id="m-create">
+<div class="modal">
+  <button class="mclose" onclick="closeModal('m-create')">×</button>
+  <div class="mtitle">Create New Market</div>
+  <div class="msub">Only the contract owner can create markets. Make sure your wallet matches the deployer address.</div>
+  <div class="ff">
+    <label class="fl">Question</label>
+    <input class="fi" id="f-q" placeholder="Will Bitcoin exceed $100,000 before July 2026?">
+  </div>
+  <div class="ff">
+    <label class="fl">Evidence URL — the LLM will fetch this to resolve the market</label>
+    <input class="fi" id="f-url" placeholder="https://coinmarketcap.com/currencies/bitcoin/">
+  </div>
+  <div class="ff">
+    <label class="fl">Deadline</label>
+    <input class="fi" id="f-dl" placeholder="End of June 2026">
+  </div>
+  <button class="btn bsolid" style="width:100%;justify-content:center;margin-top:4px" onclick="submitCreateMarket()">
+    Create Market on GenLayer
+  </button>
+  <p class="hint">This sends a signed transaction to your deployed contract. Consensus takes 15–30s.</p>
+</div>
+</div>
+
+<!-- STAKE / BET MODAL -->
+<div class="mbg" id="m-bet">
+<div class="modal">
+  <button class="mclose" onclick="closeModal('m-bet')">×</button>
+  <div class="mtitle" id="bet-modal-title">Place Your Bet</div>
+  <div class="msub" id="bet-modal-q" style="margin-bottom:1.5rem;font-size:13px;color:var(--text)"></div>
+
+  <div class="fl">Choose Amount to Stake</div>
+  <div class="stake-display"><span id="stake-val">1.0</span> <span class="stake-unit">GEN</span></div>
+
+  <input type="range" class="stake-slider" id="stake-slider" min="0.1" max="10" step="0.1" value="1.0"
+    oninput="updateStake(this.value)">
+
+  <div class="stake-presets">
+    <button class="spreset" onclick="setStake(0.5)">0.5 GEN</button>
+    <button class="spreset" onclick="setStake(1)">1 GEN</button>
+    <button class="spreset" onclick="setStake(2)">2 GEN</button>
+    <button class="spreset" onclick="setStake(5)">5 GEN</button>
+  </div>
+
+  <div style="font-size:11px;color:var(--muted);margin-bottom:14px;display:flex;justify-content:space-between">
+    <span>Your balance: <span id="bet-bal" style="color:var(--text)">—</span> GEN</span>
+    <span>Market: <span id="bet-market-name" style="color:var(--blue)">—</span></span>
+  </div>
+
+  <button class="bet-confirm-yes" id="bet-confirm-btn" onclick="confirmBet()">Confirm YES Bet</button>
+</div>
 </div>
 
 <!-- HEADER -->
 <header>
-  <a class="logo" href="#" onclick="showPage('home')">
+  <div class="logo" onclick="showPage('home')">
     <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
       <polygon points="12,2 22,20 2,20" fill="#110FFF"/>
       <polygon points="12,8 18,20 6,20" fill="#282B5D"/>
     </svg>
     Gen Markets
-  </a>
+  </div>
   <nav>
-    <button class="nb on"  id="n-home"    onclick="showPage('home')">Home</button>
-    <button class="nb"     id="n-markets" onclick="showPage('markets')">Markets</button>
-    <button class="nb"     id="n-profile" onclick="showPage('profile')">Profile</button>
+    <button class="nb on" id="n-home"    onclick="showPage('home')">Home</button>
+    <button class="nb"    id="n-markets" onclick="showPage('markets')">Markets</button>
+    <button class="nb"    id="n-profile" onclick="showPage('profile')">Profile</button>
   </nav>
   <div class="hr">
-    <div class="net-pill" id="net-pill"><div class="dot"></div><span class="addr" id="hdr-addr"></span></div>
+    <!-- Wallet pill — click to go to profile -->
+    <div class="wpill" id="wpill" onclick="showPage('profile')" title="View profile">
+      <div class="dot"></div>
+      <span id="wpill-av">🧑‍💻</span>
+      <span id="wpill-addr" style="color:var(--blue)"></span>
+    </div>
     <button class="bconn" id="hdr-conn" onclick="connectWallet()">Connect Wallet</button>
     <button class="bdis"  id="hdr-dis"  onclick="disconnectWallet()" style="display:none">Disconnect</button>
     <button class="tbtn"  id="tbtn"     onclick="toggleTheme()">☀</button>
@@ -330,19 +396,19 @@ footer a:hover{color:var(--purple);}
     <p>YES/NO prediction markets resolved by an AI referee that fetches live evidence from the web. No oracle. No middleman. Pure consensus.</p>
     <div class="hbtns">
       <button class="btn bsolid" onclick="showPage('markets')">Browse Markets →</button>
-      <button class="btn boutline" onclick="showPage('profile')">My Profile</button>
+      <button class="btn boutline" onclick="S.connected?showPage('profile'):connectWallet()">My Profile</button>
     </div>
   </div>
   <div class="steps">
-    <div class="step"><div class="sn">01</div><div class="st">Create a Market</div><div class="sd">Post a YES/NO question with an evidence URL. Anyone can bet.</div></div>
-    <div class="step"><div class="sn">02</div><div class="st">Place Your Bet</div><div class="sd">Bet YES or NO on the outcome. All bets recorded on-chain.</div></div>
+    <div class="step"><div class="sn">01</div><div class="st">Create a Market</div><div class="sd">Post a YES/NO question with an evidence URL. Owner-only to prevent spam.</div></div>
+    <div class="step"><div class="sn">02</div><div class="st">Place Your Bet</div><div class="sd">Choose YES or NO and stake GEN tokens. All bets finalized on-chain.</div></div>
     <div class="step"><div class="sn">03</div><div class="st">AI Resolves</div><div class="sd">The LLM referee fetches live evidence and judges automatically.</div></div>
-    <div class="step"><div class="sn">04</div><div class="st">Result On-Chain</div><div class="sd">Outcome stored immutably. Winners identified instantly.</div></div>
+    <div class="step"><div class="sn">04</div><div class="st">Result On-Chain</div><div class="sd">Outcome stored immutably. Winners identified instantly. No disputes.</div></div>
   </div>
   <div class="inner" style="padding-top:0">
     <div class="sectitle">Live Markets</div>
     <div class="mgrid" id="home-grid"></div>
-    <div style="text-align:center"><button class="btn bsolid" onclick="showPage('markets')">Connect &amp; Interact →</button></div>
+    <div style="text-align:center"><button class="btn bsolid" onclick="showPage('markets')">View All Markets →</button></div>
   </div>
 </div>
 
@@ -351,20 +417,22 @@ footer a:hover{color:var(--purple);}
 <div class="inner">
   <div class="ph">
     <div class="ptitle">Open Markets</div>
-    <button class="bconn" id="m-conn-btn" onclick="connectWallet()">Connect Wallet</button>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="bconn" id="m-conn-btn" onclick="connectWallet()" style="display:none">Connect Wallet</button>
+      <button class="btn boutline" id="m-create-btn" onclick="openCreateMarket()" style="display:none">+ Create Market</button>
+    </div>
   </div>
 
   <div class="txlog" id="txlog">
-    <div class="txe"><span class="txt">--:--</span><span class="txm inf">Connect your wallet to interact with live markets.</span></div>
+    <div class="txe"><span class="txt">--:--</span><span class="txm inf">Connect your wallet to interact with live markets on GenLayer Bradbury.</span></div>
   </div>
 
-  <!-- Markets grid — always visible -->
-  <div class="mgrid" id="markets-grid" style="margin-bottom:1.5rem"></div>
+  <div class="mgrid" id="markets-grid"></div>
 
-  <!-- Market detail — shown on card click -->
+  <!-- Market detail -->
   <div id="detail-wrap" style="display:none">
-    <div class="sectitle" id="detail-title" style="margin-bottom:1rem">Market Detail</div>
-    <div class="mkt-card">
+    <div class="sectitle" style="margin-bottom:1rem" id="detail-title">Market Detail</div>
+    <div class="panel">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:8px">
         <div class="pill ploading" id="d-pill">● OPEN</div>
         <div style="font-size:11px;color:var(--muted)" id="d-dl"></div>
@@ -378,8 +446,8 @@ footer a:hover{color:var(--purple);}
         <div class="vcounts"><span id="d-yc">—</span><span id="d-nc">—</span></div>
       </div>
       <div class="bgrid">
-        <button class="bbet byes" id="btn-yes" onclick="placeBet('YES')" disabled>YES<small>This will happen</small></button>
-        <button class="bbet bno"  id="btn-no"  onclick="placeBet('NO')"  disabled>NO<small>This won't happen</small></button>
+        <button class="bbet byes" id="btn-yes" onclick="openBetModal('YES')" disabled>YES<small>This will happen</small></button>
+        <button class="bbet bno"  id="btn-no"  onclick="openBetModal('NO')"  disabled>NO<small>This won't happen</small></button>
       </div>
       <button class="bresolve" id="btn-res" onclick="resolveMarket()" disabled>⚖ Resolve Market — Owner Only</button>
       <div class="verdict" id="verdict">
@@ -394,82 +462,51 @@ footer a:hover{color:var(--purple);}
     <div class="sectitle">Participants</div>
     <div id="lb-rows"></div>
   </div>
-
-  <!-- Create market -->
-  <div class="panel">
-    <div class="sectitle">Create New Market</div>
-    <div class="ff">
-      <label class="fl">Contract Address</label>
-      <input class="fi" id="f-addr" placeholder="0x… your deployed contract address">
-    </div>
-    <div class="ff">
-      <label class="fl">Question</label>
-      <input class="fi" id="f-q" placeholder="Will Bitcoin exceed $100,000 before July 2026?">
-    </div>
-    <div class="ff">
-      <label class="fl">Evidence URL</label>
-      <input class="fi" id="f-url" placeholder="https://coinmarketcap.com/currencies/bitcoin/">
-    </div>
-    <div class="ff">
-      <label class="fl">Deadline</label>
-      <input class="fi" id="f-dl" placeholder="End of June 2026">
-    </div>
-    <button class="btn bsolid" style="width:100%;justify-content:center;margin-top:4px" id="btn-create" onclick="createMarket()">Create Market on GenLayer</button>
-  </div>
 </div>
 </div>
 
 <!-- ── PROFILE ── -->
 <div class="page" id="page-profile">
-  <!-- Gate -->
   <div class="gate" id="p-gate">
     <svg width="44" height="44" viewBox="0 0 24 24" fill="none">
       <polygon points="12,2 22,20 2,20" fill="#110FFF"/>
       <polygon points="12,8 18,20 6,20" fill="#282B5D"/>
     </svg>
     <div class="gtitle">Connect your wallet</div>
-    <div class="gsub">Connect MetaMask to view your profile, bets, and GEN balance on GenLayer Bradbury.</div>
+    <div class="gsub">Connect MetaMask to view your profile, open bets, and GEN balance on GenLayer Bradbury.</div>
     <button class="btn bsolid" style="padding:12px 32px" onclick="connectWallet()">Connect Wallet</button>
   </div>
-
-  <!-- Content -->
   <div id="p-content" style="display:none">
     <div class="phero">
-      <div class="pav" onclick="openModal()" title="Change avatar">
+      <div class="pav" onclick="openModal('m-profile')" title="Edit profile">
         <div id="pav-inner" style="font-size:32px">🧑‍💻</div>
-        <div class="pav-overlay">Change</div>
+        <div class="pav-overlay">Edit</div>
       </div>
       <div class="pinfo">
         <div class="pname" id="p-name">—</div>
         <div class="paddr" id="p-addr">—</div>
         <div class="ptags">
           <span class="ptag">GenLayer Bradbury</span>
-          <span class="ptag" id="p-balance-tag">0 GEN</span>
+          <span class="ptag" id="p-bal-tag">0 GEN</span>
         </div>
       </div>
-      <button class="btn boutline" style="color:#fff;border-color:rgba(255,255,255,.3);font-size:10px;padding:8px 14px" onclick="openModal()">Edit Profile</button>
+      <button class="btn boutline" style="color:#fff;border-color:rgba(255,255,255,.3);font-size:10px;padding:8px 14px" onclick="openModal('m-profile')">Edit Profile</button>
     </div>
-
     <div class="inner" style="padding-top:1.5rem">
-      <!-- Balance -->
       <div class="sectitle">GEN Balance</div>
       <div class="srow" style="margin-bottom:1.5rem">
         <div class="sbox"><div class="sval" id="p-bal">0.0000</div><div class="slbl">GEN Balance</div></div>
-        <div class="sbox"><div class="sval" id="p-bets" style="color:var(--purple)">0</div><div class="slbl">Total Bets</div></div>
-        <div class="sbox"><div class="sval" id="p-won" style="color:#00BB66">0</div><div class="slbl">Markets Won</div></div>
-        <div class="sbox"><div class="sval" id="p-active" style="color:var(--blue)">0</div><div class="slbl">Active Bets</div></div>
+        <div class="sbox"><div class="sval" id="p-nbets" style="color:var(--purple)">0</div><div class="slbl">Total Bets</div></div>
+        <div class="sbox"><div class="sval" id="p-nwon" style="color:#00BB66">0</div><div class="slbl">Won</div></div>
+        <div class="sbox"><div class="sval" id="p-nactive" style="color:var(--blue)">0</div><div class="slbl">Active</div></div>
       </div>
-
-      <!-- Open bets -->
       <div class="sectitle">Your Bets</div>
-      <div class="panel" id="p-bets-panel">
+      <div class="panel">
         <div style="font-size:12px;color:var(--muted)" id="p-bets-empty">No bets placed yet. Go to Markets to place a bet.</div>
         <div id="p-bets-list"></div>
       </div>
-
-      <!-- All markets -->
       <div class="sectitle">All Markets</div>
-      <div class="mgrid" id="p-markets-grid"></div>
+      <div class="mgrid" id="p-mgrid"></div>
     </div>
   </div>
 </div>
@@ -489,47 +526,52 @@ footer a:hover{color:var(--purple);}
   </div>
   <div>Bradbury Testnet · Chain ID 4221</div>
 </footer>
-
 <div id="toast"></div>
 
 <script>
-// ── CONSTANTS ────────────────────────────────────────────────────
-const RPC   = 'https://rpc-bradbury.genlayer.com';
-const NET   = {
-  chainId:'0x107D', chainName:'GenLayer Bradbury',
+// ════════════════════════════════════════════════════════
+//  CONFIG — update CONTRACT_ADDR with your Bradbury address
+// ════════════════════════════════════════════════════════
+const CONTRACT_ADDR = '0xa93f13e0CD688d2f9eb938b4f85c96Ddd75C22d7';
+const OWNER_ADDR    = '';   // optional: set to your wallet address to show "Create Market" only to you
+const RPC           = 'https://rpc-bradbury.genlayer.com';
+const CHAIN_ID      = '0x107D'; // 4221
+
+const NET = {
+  chainId:CHAIN_ID, chainName:'GenLayer Bradbury',
   rpcUrls:[RPC],
   nativeCurrency:{name:'GEN',symbol:'GEN',decimals:18},
   blockExplorerUrls:['https://explorer-bradbury.genlayer.com']
 };
 
-// ── HARDCODED MARKETS (your deployed contract goes in index 0) ──
-const CONTRACT_ADDR = '0x5130437F60Be2e685b7D3e8da39f1F482aB27d27'; // Replace with your real address
-const MARKETS = [
+// ════════════════════════════════════════════════════════
+//  LOCAL MARKET CACHE (seeded from chain on load)
+// ════════════════════════════════════════════════════════
+let MARKETS = [
   { question:'Will Bitcoin exceed $100,000 before July 2026?',
-    url:'https://coinmarketcap.com/currencies/bitcoin/', deadline:'End of June 2026',
-    yes:3, no:1, status:'OPEN', addr: CONTRACT_ADDR },
-  { question:'Will Ethereum flip Bitcoin in market cap by end of 2026?',
-    url:'https://coinmarketcap.com/currencies/ethereum/', deadline:'End of December 2026',
-    yes:2, no:4, status:'OPEN', addr:'' },
-  { question:'Will GenLayer mainnet launch before Q4 2026?',
-    url:'https://genlayer.com/news', deadline:'End of September 2026',
-    yes:5, no:1, status:'OPEN', addr:'' }
+    url:'https://coinmarketcap.com/currencies/bitcoin/',
+    deadline:'End of June 2026', yes:0, no:0, status:'OPEN',
+    addr:CONTRACT_ADDR, outcome:'', reasoning:'' }
 ];
 
-// ── STATE ────────────────────────────────────────────────────────
-const S = { account:'', connected:false, activeIdx:-1 };
-let userBets = {}; // {marketIdx: 'YES'|'NO'}
+// ════════════════════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════════════════════
+const S = { account:'', connected:false, activeIdx:-1, betSide:'', betAmount:1.0 };
+let userBets = {};
 let profile  = { name:'Anonymous', avatar:'🧑‍💻' };
 
-// ── UTILS ────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════
+//  UTILS
+// ════════════════════════════════════════════════════════
 const $ = id => document.getElementById(id);
 const ts = () => new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-const sh = a  => a&&a.length>10 ? a.slice(0,6)+'…'+a.slice(-4) : a;
+const sh = a => a&&a.length>10?a.slice(0,6)+'…'+a.slice(-4):a;
 
-function toast(msg, isErr=false) {
+function toast(msg, type='ok') {
   const el=$('toast'); el.textContent=msg;
-  el.className='show'+(isErr?' terr':'');
-  clearTimeout(el._t); el._t=setTimeout(()=>el.className='',3500);
+  el.className=`show t${type}`;
+  clearTimeout(el._t); el._t=setTimeout(()=>el.className='',4000);
 }
 
 function txLog(msg, type='') {
@@ -539,18 +581,22 @@ function txLog(msg, type='') {
   el.appendChild(d); el.scrollTop=el.scrollHeight;
 }
 
-// ── NAVIGATION ───────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════
+//  NAVIGATION
+// ════════════════════════════════════════════════════════
 function showPage(name) {
   document.querySelectorAll('.page').forEach(p=>p.classList.remove('on'));
   document.querySelectorAll('.nb').forEach(b=>b.classList.remove('on'));
   $('page-'+name).classList.add('on');
   $('n-'+name).classList.add('on');
   window.scrollTo({top:0,behavior:'smooth'});
-  if (name==='markets') renderMarketsPage();
-  if (name==='profile') renderProfile();
+  if(name==='markets') { renderMarketsPage(); refreshChainData(); }
+  if(name==='profile') renderProfile();
 }
 
-// ── THEME ────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════
+//  THEME
+// ════════════════════════════════════════════════════════
 function toggleTheme() {
   const dark=document.documentElement.getAttribute('data-theme')==='dark';
   document.documentElement.setAttribute('data-theme',dark?'light':'dark');
@@ -563,32 +609,104 @@ function toggleTheme() {
   $('tbtn').textContent=s==='dark'?'☾':'☀';
 })();
 
-// ── PROFILE MODAL ────────────────────────────────────────────────
-function openModal() {
-  $('setup-name').value=profile.name==='Anonymous'?'':profile.name;
-  document.querySelectorAll('.avopt').forEach(a=>{
-    a.classList.toggle('sel',a.dataset.av===profile.avatar);
-  });
-  $('setup-modal').classList.add('show');
-}
-function closeModal(){$('setup-modal').classList.remove('show');}
+// ════════════════════════════════════════════════════════
+//  MODALS
+// ════════════════════════════════════════════════════════
+function openModal(id){$(id).classList.add('show');}
+function closeModal(id){$(id).classList.remove('show');}
+
 function selAv(el){document.querySelectorAll('.avopt').forEach(a=>a.classList.remove('sel'));el.classList.add('sel');}
+
 function saveProfile() {
   const name=$('setup-name').value.trim()||'Anonymous';
   const av=document.querySelector('.avopt.sel')?.dataset.av||'🧑‍💻';
   profile={name,avatar:av};
   localStorage.setItem('gmprofile',JSON.stringify(profile));
-  closeModal();
-  renderProfile();
+  closeModal('m-profile'); renderProfile();
+  $('wpill-av').textContent=av;
   toast('Profile saved!');
 }
-(function(){
-  const saved=localStorage.getItem('gmprofile');
-  if(saved){try{profile=JSON.parse(saved);}catch{}}
-})();
 
-// ── RPC CALL ─────────────────────────────────────────────────────
-async function rpc(method, params) {
+// ════════════════════════════════════════════════════════
+//  BET MODAL
+// ════════════════════════════════════════════════════════
+function openBetModal(side) {
+  if(!S.connected){toast('Connect wallet first','err');return;}
+  const idx=S.activeIdx;
+  if(idx<0){toast('No market selected','err');return;}
+  if(userBets[idx]){toast(`Already bet ${userBets[idx]} on this market`,'err');return;}
+
+  const m=MARKETS[idx];
+  S.betSide=side;
+  S.betAmount=1.0;
+  $('stake-slider').value=1.0;
+  $('stake-val').textContent='1.0';
+  $('bet-modal-title').textContent=`Bet ${side} on this market`;
+  $('bet-modal-q').textContent=m.question;
+  $('bet-market-name').textContent=sh(m.addr||CONTRACT_ADDR);
+
+  // Update confirm button style
+  const btn=$('bet-confirm-btn');
+  btn.textContent=`Confirm ${side} Bet`;
+  btn.className=side==='YES'?'bet-confirm-yes':'bet-confirm-no';
+
+  // Show user balance
+  fetchBalance(S.account).then(bal=>{
+    $('bet-bal').textContent=bal;
+    $('stake-slider').max=Math.min(10, parseFloat(bal)||10);
+  });
+
+  openModal('m-bet');
+}
+
+function updateStake(val) {
+  const v=parseFloat(val).toFixed(1);
+  $('stake-val').textContent=v;
+  S.betAmount=parseFloat(v);
+}
+
+function setStake(val) {
+  $('stake-slider').value=val;
+  updateStake(val);
+  document.querySelectorAll('.spreset').forEach(b=>{
+    b.classList.toggle('on', parseFloat(b.textContent)===val);
+  });
+}
+
+async function confirmBet() {
+  closeModal('m-bet');
+  const idx=S.activeIdx;
+  const m=MARKETS[idx];
+  const addr=m.addr||CONTRACT_ADDR;
+  const side=S.betSide;
+  const amount=S.betAmount;
+
+  txLog(`Placing ${side} bet (${amount} GEN) on market ${idx+1}…`,'inf');
+  toast(`Submitting ${side} bet…`);
+
+  try {
+    // Convert amount to wei
+    const valueWei='0x'+(BigInt(Math.floor(amount*1e18))).toString(16);
+    const hash=await writeContract(addr,'place_bet',[side],valueWei);
+    toast('Bet submitted! Waiting for consensus…');
+    txLog(`TX: ${hash.slice(0,18)}…`,'ok');
+    await waitTx(hash);
+    userBets[idx]=side;
+    localStorage.setItem('gmbets',JSON.stringify(userBets));
+    toast(`${side} bet confirmed on-chain ✓`,'ok');
+    txLog(`✓ ${side} bet finalized on Bradbury`,'ok');
+    // Refresh market from chain
+    await refreshSingleMarket(idx);
+    renderMarketsPage(); renderProfile(); updateDetailUI(idx);
+  } catch(e) {
+    toast(e.message,'err'); txLog(e.message,'err');
+  }
+}
+
+// ════════════════════════════════════════════════════════
+//  RPC + CONTRACT CALLS
+// ════════════════════════════════════════════════════════
+async function rpcPost(method, params) {
   const r=await fetch(RPC,{
     method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify({jsonrpc:'2.0',id:Date.now(),method,params})
@@ -598,60 +716,67 @@ async function rpc(method, params) {
   return d.result;
 }
 
-// Read contract view method via gen_call
-async function readContract(addr, method, args=[]) {
-  const data = JSON.stringify({method, args});
-  return await rpc('gen_call',[{
-    to:addr, data:'0x'+toHex(data),
-    from:S.account||'0x0000000000000000000000000000000000000000'
-  },'latest']);
-}
-
-// Write to contract via MetaMask eth_sendTransaction
-async function writeContract(addr, method, args=[]) {
-  if(!window.ethereum||!S.account) throw new Error('Wallet not connected');
-  const data = JSON.stringify({method, args});
-  const txHash = await window.ethereum.request({
-    method:'eth_sendTransaction',
-    params:[{from:S.account, to:addr, data:'0x'+toHex(data), gas:'0x186A0'}]
-  });
-  txLog(`TX sent: ${txHash.slice(0,18)}…`,'ok');
-  return txHash;
-}
-
-// Encode string to hex
 function toHex(str) {
   return Array.from(new TextEncoder().encode(str)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 
-// Poll for tx finalization
-async function waitTx(hash, maxTries=25) {
-  for(let i=0;i<maxTries;i++){
-    await new Promise(r=>setTimeout(r,2500));
+// Read via gen_call
+async function readContract(addr, method, args=[]) {
+  const payload=JSON.stringify({method,args});
+  const result=await rpcPost('gen_call',[{
+    to:addr,
+    data:'0x'+toHex(payload),
+    from:S.account||'0x0000000000000000000000000000000000000000'
+  },'latest']);
+  // Try to decode hex result
+  if(result&&result.startsWith('0x')){
     try{
-      const r=await rpc('gen_getTransactionStatus',[hash]);
-      const st=r?.status||r;
-      txLog(`Consensus: ${st}`,'inf');
-      if(st==='FINALIZED'||st==='ACCEPTED') return r;
-      if(st==='CANCELLED'||st==='REJECTED') throw new Error(`TX ${st}`);
-    }catch(e){ if(e.message.includes('TX')) throw e; }
+      const bytes=new Uint8Array(result.slice(2).match(/.{1,2}/g).map(b=>parseInt(b,16)));
+      return new TextDecoder().decode(bytes);
+    }catch{}
   }
-  throw new Error('TX timeout — check Studio for status');
+  return result;
 }
 
-// ── WALLET ───────────────────────────────────────────────────────
+// Write via MetaMask
+async function writeContract(addr, method, args=[], valueWei='0x0') {
+  if(!window.ethereum||!S.account) throw new Error('Wallet not connected');
+  const payload=JSON.stringify({method,args});
+  const hash=await window.ethereum.request({
+    method:'eth_sendTransaction',
+    params:[{from:S.account,to:addr,data:'0x'+toHex(payload),gas:'0x30D40',value:valueWei}]
+  });
+  return hash;
+}
+
+// Poll for finalization
+async function waitTx(hash, maxTries=30) {
+  for(let i=0;i<maxTries;i++){
+    await new Promise(r=>setTimeout(r,3000));
+    try{
+      const r=await rpcPost('gen_getTransactionStatus',[hash]);
+      const st=r?.status||r||'';
+      if(st) txLog(`Consensus: ${st}`,'inf');
+      if(st==='FINALIZED'||st==='ACCEPTED') return r;
+      if(st==='CANCELLED'||st==='REJECTED') throw new Error(`TX ${st}`);
+    }catch(e){if(e.message.startsWith('TX')) throw e;}
+  }
+  throw new Error('TX timeout — it may still finalize, check the explorer');
+}
+
+// ════════════════════════════════════════════════════════
+//  WALLET
+// ════════════════════════════════════════════════════════
 async function connectWallet() {
   if(!window.ethereum){
-    toast('MetaMask not found — install from metamask.io',true);
-    txLog('MetaMask not detected. Get it at metamask.io','err');
+    toast('Install MetaMask from metamask.io','err');
     return;
   }
-  try{
-    // Request accounts
+  try {
     const accounts=await window.ethereum.request({method:'eth_requestAccounts'});
-    // Switch/add GenLayer Bradbury
+    // Add/switch to Bradbury
     try{
-      await window.ethereum.request({method:'wallet_switchEthereumChain',params:[{chainId:NET.chainId}]});
+      await window.ethereum.request({method:'wallet_switchEthereumChain',params:[{chainId:CHAIN_ID}]});
     }catch(e){
       if(e.code===4902){
         await window.ethereum.request({method:'wallet_addEthereumChain',params:[NET]});
@@ -659,52 +784,59 @@ async function connectWallet() {
     }
     const addr=accounts[0];
     S.account=addr; S.connected=true;
-    onConnected(addr);
-    txLog(`Connected: ${addr}`,'ok');
-    toast('Connected to GenLayer Bradbury!');
+    await onConnected(addr);
 
-    // Listeners
     window.ethereum.on('accountsChanged',accs=>{
       if(!accs.length){disconnectWallet();return;}
       S.account=accs[0]; onConnected(accs[0]);
     });
     window.ethereum.on('chainChanged',()=>window.location.reload());
-
   }catch(e){
-    const m=e.code===4001?'Connection rejected':e.message||'Failed';
-    toast(m,true); txLog(m,'err');
+    const m=e.code===4001?'Connection rejected by user':e.message||'Connection failed';
+    toast(m,'err'); txLog(m,'err');
   }
 }
 
 async function onConnected(addr) {
-  // UI
-  $('net-pill').classList.add('show');
-  $('hdr-addr').textContent=sh(addr);
+  $('wpill').classList.add('show');
+  $('wpill-addr').textContent=sh(addr);
+  $('wpill-av').textContent=profile.avatar;
   $('hdr-conn').style.display='none';
   $('hdr-dis').style.display='block';
-  const mcb=$('m-conn-btn');
-  if(mcb){mcb.textContent=sh(addr);mcb.disabled=true;mcb.style.opacity='.6';}
-  // Show profile if on profile page
+
+  // Show/hide market buttons
+  $('m-conn-btn').style.display='none';
+  $('m-create-btn').style.display='block';
+
+  // Profile gate
   $('p-gate').style.display='none';
   $('p-content').style.display='block';
-  // Ask for profile setup if first time
-  if(!localStorage.getItem('gmprofile')||profile.name==='Anonymous'){
-    setTimeout(openModal,600);
+
+  // First time setup
+  if(!localStorage.getItem('gmprofile')){
+    setTimeout(()=>openModal('m-profile'),700);
   }
-  // Fetch real GEN balance
-  await fetchBalance(addr);
+
+  txLog(`Connected: ${addr}`,'ok');
+  toast('Connected to GenLayer Bradbury!');
+
+  const bal=await fetchBalance(addr);
+  txLog(`Balance: ${bal} GEN`,'ok');
+
+  // Load all markets from chain
+  await refreshChainData();
   renderMarketsPage();
+  renderHomeMarkets();
   renderProfile();
 }
 
-function disconnectWallet() {
+function disconnectWallet(){
   S.account=''; S.connected=false;
-  $('net-pill').classList.remove('show');
+  $('wpill').classList.remove('show');
   $('hdr-conn').style.display='block';
-  $('hdr-conn').textContent='Connect Wallet';
   $('hdr-dis').style.display='none';
-  const mcb=$('m-conn-btn');
-  if(mcb){mcb.textContent='Connect Wallet';mcb.disabled=false;mcb.style.opacity='1';}
+  $('m-conn-btn').style.display='block';
+  $('m-create-btn').style.display='none';
   $('p-gate').style.display='flex';
   $('p-content').style.display='none';
   $('detail-wrap').style.display='none';
@@ -712,100 +844,143 @@ function disconnectWallet() {
   renderMarketsPage();
 }
 
-// ── BALANCE ──────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════
+//  BALANCE
+// ════════════════════════════════════════════════════════
 async function fetchBalance(addr) {
   try{
-    const res=await fetch(RPC,{method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({jsonrpc:'2.0',id:1,method:'eth_getBalance',params:[addr,'latest']})});
-    const d=await res.json();
-    if(d.result){
-      const gen=(parseInt(d.result,16)/1e18).toFixed(4);
-      $('p-bal').textContent=gen;
-      $('p-balance-tag').textContent=gen+' GEN';
-      txLog(`Balance: ${gen} GEN`,'ok');
-    }
-  }catch{txLog('Could not fetch balance','inf');}
+    const d=await rpcPost('eth_getBalance',[addr,'latest']);
+    const gen=(parseInt(d,16)/1e18).toFixed(4);
+    $('p-bal').textContent=gen;
+    $('p-bal-tag').textContent=gen+' GEN';
+    return gen;
+  }catch{ return '?'; }
 }
 
-// ── RENDER MARKET CARDS ───────────────────────────────────────────
-function marketCard(m, idx, clickable=true) {
+// ════════════════════════════════════════════════════════
+//  LOAD MARKETS FROM CHAIN
+// ════════════════════════════════════════════════════════
+async function refreshChainData() {
+  for(let i=0;i<MARKETS.length;i++){
+    if(MARKETS[i].addr) await refreshSingleMarket(i);
+  }
+}
+
+async function refreshSingleMarket(idx) {
+  const m=MARKETS[idx];
+  if(!m.addr) return;
+  try{
+    const raw=await readContract(m.addr,'get_market_info',[]);
+    if(raw) parseLiveMarket(idx,raw);
+  }catch(e){ txLog(`Market ${idx+1} read error: ${e.message}`,'inf'); }
+}
+
+function parseLiveMarket(idx, raw) {
+  const lines=(raw||'').split('\n');
+  const get=k=>{const l=lines.find(l=>l.startsWith(k));return l?l.split(':').slice(1).join(':').trim():'';};
+  const yes=parseInt(get('YES bets'))||0;
+  const no=parseInt(get('NO bets'))||0;
+  const q=get('Question');
+  const status=get('Status');
+  const deadline=get('Deadline');
+  const outcome=get('Outcome');
+  const reasoning=get('Reasoning');
+  if(q) MARKETS[idx].question=q;
+  if(status) MARKETS[idx].status=status;
+  if(deadline) MARKETS[idx].deadline=deadline;
+  if(yes||no){MARKETS[idx].yes=yes;MARKETS[idx].no=no;}
+  if(outcome) MARKETS[idx].outcome=outcome;
+  if(reasoning) MARKETS[idx].reasoning=reasoning;
+}
+
+// ════════════════════════════════════════════════════════
+//  RENDER MARKET CARDS
+// ════════════════════════════════════════════════════════
+function marketCard(m, idx) {
   const total=m.yes+m.no;
   const yp=total>0?Math.round(m.yes/total*100):50;
   const myBet=userBets[idx];
-  const betBtns = S.connected
-    ? `<div style="display:flex;gap:6px;margin-top:10px">
-         <button onclick="event.stopPropagation();quickBet(${idx},'YES')"
-           style="flex:1;background:${myBet==='YES'?'var(--yes)':'transparent'};
-           border:1.5px solid var(--yes);color:${myBet==='YES'?'#fff':'var(--yes)'};
-           font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:.1em;
-           text-transform:uppercase;padding:7px;cursor:pointer;transition:all .18s">
-           ${myBet==='YES'?'✓ ':''}YES</button>
-         <button onclick="event.stopPropagation();quickBet(${idx},'NO')"
-           style="flex:1;background:${myBet==='NO'?'var(--no)':'transparent'};
-           border:1.5px solid var(--no);color:${myBet==='NO'?'#fff':'var(--no)'};
-           font-family:'Syne',sans-serif;font-weight:700;font-size:10px;letter-spacing:.1em;
-           text-transform:uppercase;padding:7px;cursor:pointer;transition:all .18s">
-           ${myBet==='NO'?'✓ ':''}NO</button>
-       </div>`
-    : `<div style="margin-top:10px;font-size:10px;color:var(--muted)">Connect wallet to bet</div>`;
+
+  const betRow = S.connected
+    ? `<div class="mc-btns">
+        <button class="mc-bet yes ${myBet==='YES'?'won':''}"
+          onclick="event.stopPropagation();openDetail(${idx});openBetModal('YES')"
+          ${myBet?'disabled':''}>
+          ${myBet==='YES'?'✓ YES':'YES'}
+        </button>
+        <button class="mc-bet no ${myBet==='NO'?'won':''}"
+          onclick="event.stopPropagation();openDetail(${idx});openBetModal('NO')"
+          ${myBet?'disabled':''}>
+          ${myBet==='NO'?'✓ NO':'NO'}
+        </button>
+      </div>`
+    : `<div style="margin-top:12px;font-size:10px;color:var(--muted);text-align:center;padding:6px 0;border-top:1px solid var(--border)">
+        Connect wallet to bet
+       </div>`;
+
   return `
-  <div class="mc" onclick="${clickable?`openDetail(${idx})`:''}" style="${clickable?'cursor:pointer':''}">
-    <div class="ms">● ${m.status}</div>
+  <div class="mc" onclick="openDetail(${idx})">
+    <div class="ms"><div class="dot" style="width:5px;height:5px"></div>${m.status}</div>
     <div class="mq">${m.question}</div>
     <div class="mbar"><div class="mfill" style="width:${yp}%"></div></div>
     <div class="mmeta">
-      <span style="color:var(--blue)">YES ${yp}%</span>
+      <span style="color:var(--blue);font-weight:500">YES ${yp}%</span>
       <span>${total} bets · ${m.deadline}</span>
-      <span style="color:var(--no)">NO ${100-yp}%</span>
+      <span style="color:var(--no);font-weight:500">NO ${100-yp}%</span>
     </div>
-    ${betBtns}
+    ${betRow}
   </div>`;
 }
 
-function renderHomeMarkets() {
-  $('home-grid').innerHTML=MARKETS.map((m,i)=>marketCard(m,i,true)).join('');
+function renderHomeMarkets(){
+  $('home-grid').innerHTML=MARKETS.map((m,i)=>marketCard(m,i)).join('');
+}
+function renderMarketsPage(){
+  const w=$('markets-grid'); if(!w) return;
+  w.innerHTML=MARKETS.map((m,i)=>marketCard(m,i)).join('');
 }
 
-function renderMarketsPage() {
-  const wrap=$('markets-grid');
-  if(!wrap) return;
-  wrap.innerHTML=MARKETS.map((m,i)=>marketCard(m,i,true)).join('');
-}
-
-// ── QUICK BET FROM CARD ───────────────────────────────────────────
-async function quickBet(idx, side) {
-  if(!S.connected){toast('Connect wallet first',true);return;}
-  const m=MARKETS[idx];
-  if(!m.addr){toast('No contract address for this market yet',true);return;}
-  await doBet(idx, side, m.addr);
-}
-
-// ── OPEN DETAIL ───────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════
+//  MARKET DETAIL
+// ════════════════════════════════════════════════════════
 async function openDetail(idx) {
   S.activeIdx=idx;
-  const m=MARKETS[idx];
   $('detail-wrap').style.display='block';
-  $('detail-title').textContent=`Market ${idx+1} of ${MARKETS.length}`;
+  updateDetailUI(idx);
+  $('detail-wrap').scrollIntoView({behavior:'smooth',block:'start'});
+  // Refresh from chain
+  if(MARKETS[idx].addr){
+    txLog(`Fetching live state for market ${idx+1}…`,'inf');
+    await refreshSingleMarket(idx);
+    updateDetailUI(idx);
+  }
+}
 
-  // Update detail card UI
+function updateDetailUI(idx) {
+  const m=MARKETS[idx];
+  const total=m.yes+m.no;
+  const yp=total>0?Math.round(m.yes/total*100):50;
+
   $('d-q').textContent=m.question;
   $('d-dl').textContent=m.deadline?'📅 '+m.deadline:'';
-  $('d-meta').innerHTML=`<span>🗳 ${m.yes+m.no} bets</span>${m.addr?`<span>🔗 ${sh(m.addr)}</span>`:''}`;
-
-  updateDetailVoteBar(m);
+  $('d-meta').innerHTML=`<span>🗳 ${total} bets</span>${m.addr?`<span>🔗 ${sh(m.addr)}</span>`:''}`;
+  $('d-vf').style.width=yp+'%';
+  $('d-yp').textContent=total>0?yp+'%':'—';
+  $('d-np').textContent=total>0?(100-yp)+'%':'—';
+  $('d-yc').textContent=m.yes+' YES';
+  $('d-nc').textContent=m.no+' NO';
+  $('detail-title').textContent=`Market ${idx+1} of ${MARKETS.length}`;
 
   const open=m.status==='OPEN';
-  $('btn-yes').disabled=!(open&&S.connected);
-  $('btn-no').disabled=!(open&&S.connected);
+  const myBet=userBets[idx];
+  $('btn-yes').disabled=!(open&&S.connected&&!myBet);
+  $('btn-no').disabled=!(open&&S.connected&&!myBet);
   $('btn-res').disabled=!(open&&S.connected);
 
-  // Status pill
-  const pmap={OPEN:'popen ● OPEN',RESOLVED:'presolved ✓ RESOLVED',CANCELLED:'pcancelled ✕ CANCELLED',EMPTY:'ploading ○ EMPTY'};
-  const [cls,lbl]=(pmap[m.status]||'ploading ◌ LOADING').split(' ',2);
-  $('d-pill').className=`pill ${cls}`;
-  $('d-pill').textContent=m.status;
+  const pmap={OPEN:'popen',RESOLVED:'presolved',CANCELLED:'pcancelled',EMPTY:'ploading'};
+  $('d-pill').className='pill '+(pmap[m.status]||'ploading');
+  $('d-pill').textContent='● '+m.status;
 
-  // Verdict
   if(m.status==='RESOLVED'&&m.outcome){
     const vc=$('verdict'); vc.classList.add('show');
     if(m.outcome==='NO') vc.classList.add('nov');
@@ -815,125 +990,79 @@ async function openDetail(idx) {
     if(cm) $('v-conf').textContent=cm[1];
     $('v-text').textContent=(m.reasoning||'').replace(/\[.*?confidence\]\s*/,'');
   }
-
-  $('detail-wrap').scrollIntoView({behavior:'smooth',block:'start'});
-
-  // Try to read live state from chain
-  if(m.addr){
-    txLog(`Reading market state from chain…`,'inf');
-    try{
-      const raw=await readContract(m.addr,'get_market_info',[]);
-      if(raw) parseLiveMarket(idx, raw);
-    }catch(e){txLog(`Chain read: ${e.message}`,'inf');}
-  }
 }
 
-function updateDetailVoteBar(m) {
-  const total=m.yes+m.no;
-  const yp=total>0?Math.round(m.yes/total*100):50;
-  $('d-vf').style.width=yp+'%';
-  $('d-yp').textContent=total>0?yp+'%':'—';
-  $('d-np').textContent=total>0?(100-yp)+'%':'—';
-  $('d-yc').textContent=m.yes+' YES';
-  $('d-nc').textContent=m.no+' NO';
-}
-
-function parseLiveMarket(idx, raw) {
-  const lines=(raw||'').split('\n');
-  const get=k=>{const l=lines.find(l=>l.startsWith(k));return l?l.split(':').slice(1).join(':').trim():'';};
-  const yes=parseInt(get('YES bets'))||MARKETS[idx].yes;
-  const no=parseInt(get('NO bets'))||MARKETS[idx].no;
-  MARKETS[idx]={...MARKETS[idx],
-    question:get('Question')||MARKETS[idx].question,
-    status:get('Status')||MARKETS[idx].status,
-    deadline:get('Deadline')||MARKETS[idx].deadline,
-    yes,no,
-    outcome:get('Outcome')||'',
-    reasoning:get('Reasoning')||''
-  };
-  updateDetailVoteBar(MARKETS[idx]);
-  txLog(`Live data loaded — YES:${yes} NO:${no}`,'ok');
-}
-
-// ── PLACE BET ─────────────────────────────────────────────────────
-async function placeBet(side) {
-  if(S.activeIdx<0){toast('No market selected',true);return;}
-  const m=MARKETS[S.activeIdx];
-  if(!m.addr){toast('No contract address for this market',true);return;}
-  await doBet(S.activeIdx, side, m.addr);
-}
-
-async function doBet(idx, side, addr) {
-  if(!S.connected){toast('Connect wallet first',true);return;}
-  if(userBets[idx]){toast(`Already bet ${userBets[idx]} on this market`,true);return;}
-  txLog(`Placing ${side} bet…`,'inf');
-  toast(`Submitting ${side} bet to GenLayer…`);
-  try{
-    const hash=await writeContract(addr,'place_bet',[side]);
-    toast(`Bet submitted! Waiting for consensus…`);
-    await waitTx(hash);
-    userBets[idx]=side;
-    MARKETS[idx][side.toLowerCase()==='yes'?'yes':'no']++;
-    localStorage.setItem('gmbets',JSON.stringify(userBets));
-    toast(`${side} bet confirmed on-chain! ✓`);
-    txLog(`✓ ${side} bet finalized`,'ok');
-    if(S.activeIdx===idx) updateDetailVoteBar(MARKETS[idx]);
-    renderMarketsPage(); renderProfile();
-  }catch(e){
-    toast(e.message,true); txLog(e.message,'err');
-    $('btn-yes').classList.remove('on'); $('btn-no').classList.remove('on');
-  }
-}
-
-// ── RESOLVE ───────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════
+//  RESOLVE
+// ════════════════════════════════════════════════════════
 async function resolveMarket() {
-  if(S.activeIdx<0){toast('No market selected',true);return;}
+  if(S.activeIdx<0||!S.connected){toast('Connect wallet first','err');return;}
   const m=MARKETS[S.activeIdx];
-  if(!m.addr){toast('No contract address',true);return;}
+  if(!m.addr){toast('No contract address','err');return;}
   const btn=$('btn-res');
   btn.disabled=true; btn.innerHTML='<span class="spin">◌</span> AI referee working…';
-  txLog('Calling resolve_market() — LLM fetching live evidence…','inf');
-  toast('Resolving… AI is fetching evidence (15–30s)');
+  txLog('resolve_market() — LLM fetching live evidence…','inf');
+  toast('AI referee fetching evidence (15–30s)…');
   try{
     const hash=await writeContract(m.addr,'resolve_market',[]);
+    txLog(`TX: ${hash.slice(0,18)}…`,'ok');
     await waitTx(hash,30);
-    toast('Market resolved on-chain! ✓');
+    toast('Market resolved on-chain ✓','ok');
     txLog('✓ Resolution finalized','ok');
-    // Re-read state
-    const raw=await readContract(m.addr,'get_market_info',[]);
-    if(raw) parseLiveMarket(S.activeIdx,raw);
+    await refreshSingleMarket(S.activeIdx);
+    updateDetailUI(S.activeIdx);
     renderMarketsPage();
-    btn.innerHTML='⚖ Resolve Market — Owner Only';
-    btn.disabled=false;
+    btn.innerHTML='⚖ Resolve Market — Owner Only'; btn.disabled=false;
   }catch(e){
-    toast(e.message,true); txLog(e.message,'err');
+    toast(e.message,'err'); txLog(e.message,'err');
     btn.disabled=false; btn.innerHTML='⚖ Resolve Market — Owner Only';
   }
 }
 
-// ── CREATE MARKET ─────────────────────────────────────────────────
-async function createMarket() {
-  if(!S.connected){toast('Connect wallet first',true);return;}
-  const addr=($('f-addr').value||'').trim();
+// ════════════════════════════════════════════════════════
+//  CREATE MARKET (owner only)
+// ════════════════════════════════════════════════════════
+function openCreateMarket(){
+  if(!S.connected){toast('Connect wallet first','err');return;}
+  openModal('m-create');
+}
+
+async function submitCreateMarket(){
   const q=($('f-q').value||'').trim();
   const url=($('f-url').value||'').trim();
   const dl=($('f-dl').value||'').trim();
-  if(!addr||!q||!url){toast('Contract address, question and URL required',true);return;}
-  txLog(`Creating market on ${sh(addr)}…`,'inf');
+  if(!q||!url){toast('Question and Evidence URL required','err');return;}
+  closeModal('m-create');
+  txLog(`Creating market: "${q.slice(0,40)}…"`,'inf');
   toast('Submitting create_market() to GenLayer…');
   try{
-    const hash=await writeContract(addr,'create_market',[q,url,dl||'No deadline']);
+    const hash=await writeContract(CONTRACT_ADDR,'create_market',[q,url,dl||'No deadline']);
+    txLog(`TX: ${hash.slice(0,18)}…`,'ok');
+    toast('Waiting for consensus…');
     await waitTx(hash);
-    toast('Market created on-chain! ✓');
-    txLog('✓ Market created','ok');
-    // Add to local list
-    MARKETS[0]={...MARKETS[0],question:q,url,deadline:dl,addr,yes:0,no:0,status:'OPEN'};
-    renderMarketsPage(); renderHomeMarkets();
-  }catch(e){toast(e.message,true);txLog(e.message,'err');}
+    toast('Market created on-chain ✓','ok');
+    txLog('✓ Market created — refreshing…','ok');
+    // Read fresh market state and update local cache
+    await refreshSingleMarket(0);
+    // If it was a new question add it to the list
+    if(MARKETS[0].question!==q){
+      MARKETS.push({question:q,url,deadline:dl,yes:0,no:0,status:'OPEN',addr:CONTRACT_ADDR,outcome:'',reasoning:''});
+      await refreshSingleMarket(MARKETS.length-1);
+    } else {
+      MARKETS[0]={...MARKETS[0],question:q,url,deadline:dl,yes:0,no:0,status:'OPEN'};
+    }
+    renderMarketsPage();
+    renderHomeMarkets();
+    $('f-q').value=''; $('f-url').value=''; $('f-dl').value='';
+  }catch(e){
+    toast(e.message,'err'); txLog(e.message,'err');
+  }
 }
 
-// ── PROFILE ───────────────────────────────────────────────────────
-function renderProfile() {
+// ════════════════════════════════════════════════════════
+//  PROFILE
+// ════════════════════════════════════════════════════════
+function renderProfile(){
   if(!S.connected) return;
   $('p-name').textContent=profile.name||'Anonymous';
   $('p-addr').textContent=S.account||'—';
@@ -941,49 +1070,68 @@ function renderProfile() {
 
   const total=Object.keys(userBets).length;
   const won=Object.entries(userBets).filter(([i,s])=>MARKETS[i]?.outcome===s).length;
-  $('p-bets').textContent=total;
-  $('p-won').textContent=won;
-  $('p-active').textContent=Object.entries(userBets).filter(([i])=>MARKETS[i]?.status==='OPEN').length;
+  const active=Object.entries(userBets).filter(([i])=>MARKETS[i]?.status==='OPEN').length;
+  $('p-nbets').textContent=total;
+  $('p-nwon').textContent=won;
+  $('p-nactive').textContent=active;
 
-  // Bet list
   const list=$('p-bets-list');
   const empty=$('p-bets-empty');
   if(total===0){empty.style.display='block';list.innerHTML='';}
   else{
     empty.style.display='none';
     list.innerHTML=Object.entries(userBets).map(([idx,side])=>{
-      const m=MARKETS[idx];
-      if(!m) return '';
+      const m=MARKETS[idx]; if(!m) return '';
       const isOpen=m.status==='OPEN';
-      const won=m.outcome===side;
-      const badgeCls=isOpen?'spend':won?'swon':'slost';
-      const badgeTxt=isOpen?'OPEN':won?'WON':'LOST';
+      const isWon=m.outcome===side;
+      const cls=isOpen?'spend':isWon?'swon':'slost';
+      const lbl=isOpen?'OPEN':isWon?'WON':'LOST';
+      const sideColor=side==='YES'?'var(--blue)':'var(--no)';
       return `<div class="obrow">
-        <div>
+        <div style="flex:1">
           <div class="obq">${m.question}</div>
-          <div class="obmeta">Your bet: <span style="color:${side==='YES'?'var(--blue)':'var(--no)'};font-weight:600">${side}</span> · Deadline: ${m.deadline}</div>
+          <div class="obmeta">Bet: <span style="color:${sideColor};font-weight:600">${side}</span> · Deadline: ${m.deadline}</div>
         </div>
-        <span class="lbside ${badgeCls}">${badgeTxt}</span>
+        <span class="lbside ${cls}">${lbl}</span>
       </div>`;
     }).join('');
   }
-
-  // Markets grid
-  $('p-markets-grid').innerHTML=MARKETS.map((m,i)=>marketCard(m,i,true)).join('');
-
-  // Refresh balance
+  $('p-mgrid').innerHTML=MARKETS.map((m,i)=>marketCard(m,i)).join('');
   if(S.account) fetchBalance(S.account);
 }
 
-// ── INIT ─────────────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════════════════════
 (function(){
-  const saved=localStorage.getItem('gmbets');
-  if(saved){try{Object.assign(userBets,JSON.parse(saved));}catch{}}
+  // Load saved profile
+  const sp=localStorage.getItem('gmprofile');
+  if(sp){try{profile=JSON.parse(sp);}catch{}}
+
+  // Load saved bets
+  const sb=localStorage.getItem('gmbets');
+  if(sb){try{Object.assign(userBets,JSON.parse(sb));}catch{}}
+
+  // Show markets page connect btn
+  $('m-conn-btn').style.display='block';
+  $('m-create-btn').style.display='none';
+
+  renderHomeMarkets();
+  renderMarketsPage();
+
+  // Try to auto-reconnect
+  if(window.ethereum){
+    window.ethereum.request({method:'eth_accounts'}).then(accs=>{
+      if(accs&&accs[0]){
+        S.account=accs[0]; S.connected=true;
+        onConnected(accs[0]);
+      }
+    }).catch(()=>{});
+  }
+
+  txLog('Gen Markets loaded — Bradbury Testnet','inf');
+  txLog('Connect MetaMask to start betting on-chain','');
 })();
-renderHomeMarkets();
-renderMarketsPage();
-txLog('Gen Markets loaded','inf');
-txLog('Connect MetaMask to interact with GenLayer Bradbury','');
 </script>
 </body>
 </html>
