@@ -803,15 +803,22 @@ async function readContract(addr, method, args=[]) {
           if (receipt.status === '0x0' || receipt.status === 0) return null;
           // TX mined — try to get GenLayer result
           try {
-            const tx = await rpcPost('gen_getTransaction', [hash]);
+            const tx = await rpcPost('zks_getTransaction', [hash]);
             if (tx) {
-              const rv = tx.consensus_data?.leader_receipt?.execution_result?.return_value
+              // zks_getTransaction return value paths
+              const rv = tx.execute?.output
+                      || tx.output
+                      || tx.result
+                      || tx.return_value
+                      || tx.consensus_data?.leader_receipt?.execution_result?.return_value
                       || tx.leader_receipt?.execution_result?.return_value
-                      || tx.execution_result?.return_value
-                      || tx.result || tx.return_value;
+                      || tx.execution_result?.return_value;
+              console.log('zks_getTransaction full:', JSON.stringify(tx).slice(0,500));
               if (rv && typeof rv === 'string' && rv.startsWith('0x') && rv.length > 2) {
-                const bytes = new Uint8Array(rv.slice(2).match(/.{1,2}/g).map(b=>parseInt(b,16)));
-                return new TextDecoder().decode(bytes);
+                try {
+                  const bytes = new Uint8Array(rv.slice(2).match(/.{1,2}/g).map(b=>parseInt(b,16)));
+                  return new TextDecoder().decode(bytes);
+                } catch {}
               }
               if (rv) return String(rv);
             }
@@ -1512,7 +1519,7 @@ function renderProfile(){
         console.log(`4.${i} Receipt:`, JSON.stringify(receipt).slice(0,200));
         if(receipt && !receipt.error && receipt.status){
           // Try gen_getTransaction for full details
-          const tx = await rpcPost('gen_getTransaction',[hash]).catch(e=>({error:e.message}));
+          const tx = await rpcPost('zks_getTransaction',[hash]).catch(e=>({error:e.message}));
           console.log('5. gen_getTransaction:', JSON.stringify(tx).slice(0,1000));
           break;
         }
