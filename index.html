@@ -529,7 +529,7 @@ footer a:hover{color:var(--purple);}
         <div style="font-size:12px;color:var(--muted)" id="p-bets-empty">No bets placed yet. Go to Markets to place a bet.</div>
         <div id="p-bets-list"></div>
       </div>
-      <div class="sectitle">All Markets</div>
+      <div class="sectitle">Your Betted Markets</div>
       <div class="mgrid" id="p-mgrid"></div>
     </div>
   </div>
@@ -650,6 +650,7 @@ function saveProfile() {
   const av=document.querySelector('.avopt.sel')?.dataset.av||'🧑‍💻';
   profile={name,avatar:av};
   localStorage.setItem('gmprofile',JSON.stringify(profile));
+  if(S.account) localStorage.setItem('gmprofile_'+S.account.toLowerCase(),JSON.stringify(profile));
   closeModal('m-profile'); renderProfile();
   $('wpill-av').textContent=av;
   toast('Profile saved!');
@@ -722,6 +723,7 @@ async function confirmBet() {
     // Record bet regardless of timeout — tx was signed and submitted
     userBets[idx] = side;
     localStorage.setItem('gmbets', JSON.stringify(userBets));
+    if(S.account) localStorage.setItem('gmbets_'+S.account.toLowerCase(), JSON.stringify(userBets));
 
     if (result.status === 'FINALIZED' || result.status === 'ACCEPTED') {
       toast(`${side} bet confirmed on-chain ✓`, 'ok');
@@ -931,7 +933,16 @@ async function connectWallet() {
 
     window.ethereum.on('accountsChanged',accs=>{
       if(!accs.length){disconnectWallet();return;}
-      S.account=accs[0]; onConnected(accs[0]);
+      const newAddr=accs[0];
+      S.account=newAddr; S.connected=true;
+      // Reset to this wallet's saved profile
+      const wp=localStorage.getItem('gmprofile_'+newAddr.toLowerCase());
+      profile = wp ? JSON.parse(wp) : {name:'Anonymous',avatar:'🧑‍💻'};
+      // Reset to this wallet's bets
+      userBets={};
+      const wb=localStorage.getItem('gmbets_'+newAddr.toLowerCase());
+      if(wb){try{Object.assign(userBets,JSON.parse(wb));}catch{}}
+      onConnected(newAddr);
     });
     window.ethereum.on('chainChanged',()=>window.location.reload());
   }catch(e){
@@ -957,10 +968,21 @@ async function onConnected(addr) {
   $('p-gate').style.display='none';
   $('p-content').style.display='block';
 
-  // First time setup
-  if(!localStorage.getItem('gmprofile')){
-    setTimeout(()=>openModal('m-profile'),700);
+  // Load this wallet's profile
+  const walletProfileKey = 'gmprofile_' + addr.toLowerCase();
+  const walletBetsKey    = 'gmbets_'    + addr.toLowerCase();
+  const walletProfile = localStorage.getItem(walletProfileKey);
+  if(walletProfile){
+    try{ profile = JSON.parse(walletProfile); }catch{}
+  } else {
+    // New wallet — reset and prompt setup
+    profile = { name:'Anonymous', avatar:'🧑‍💻' };
+    setTimeout(()=>openModal('m-profile'), 700);
   }
+  // Load this wallet's bets
+  userBets = {};
+  const walletBets = localStorage.getItem(walletBetsKey);
+  if(walletBets){ try{ Object.assign(userBets, JSON.parse(walletBets)); }catch{} }
 
   txLog(`Connected: ${addr}`,'ok');
   toast('Connected to GenLayer Bradbury!');
@@ -1387,7 +1409,16 @@ function renderProfile(){
       </div>`;
     }).join('');
   }
-  $('p-mgrid').innerHTML=MARKETS.map((m,i)=>marketCard(m,i)).join('');
+  // Only show markets this user has actually bet on
+  const bettedMarkets = MARKETS
+    .map((m,i) => ({m,i}))
+    .filter(({i}) => userBets[i] !== undefined);
+  const pgrid = $('p-mgrid');
+  if(pgrid){
+    pgrid.innerHTML = bettedMarkets.length > 0
+      ? bettedMarkets.map(({m,i}) => marketCard(m,i)).join('')
+      : '<div style="font-size:12px;color:var(--muted);padding:12px">No bets placed yet. Go to Markets to bet.</div>';
+  }
   if(S.account) fetchBalance(S.account);
 }
 
