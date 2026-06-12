@@ -798,12 +798,10 @@ async function readContract(addr, method, args=[]) {
     for (let i = 0; i < 15; i++) {
       await new Promise(r => setTimeout(r, 2000));
       try {
-        // gen_getTransactionStatus expects {hash: "0x..."} object
-        const status = await rpcPost('gen_getTransactionStatus', [{hash}]);
+        const status = await rpcPost('gen_getTransactionStatus', [hash]);
         const st = status?.status || status || '';
         if (st === 'FINALIZED' || st === 'ACCEPTED') {
-          // gen_getTransaction expects {hash: "0x..."} object
-          const tx = await rpcPost('gen_getTransaction', [{hash}]);
+          const tx = await rpcPost('gen_getTransaction', [hash]);
           if (tx) {
             // Return value is in consensus_data or leader_receipt
             const rv = tx.consensus_data?.leader_receipt?.execution_result?.return_value
@@ -923,7 +921,7 @@ async function waitTx(hash, maxTries=30) {
       // Try gen_getTransactionStatus first
       let st = '';
       try {
-        const r = await rpcPost('gen_getTransactionStatus', [{hash}]);
+        const r = await rpcPost('gen_getTransactionStatus', [hash]);
         st = r?.status || r || '';
       } catch {
         // Fall back to eth_getTransactionReceipt
@@ -1522,11 +1520,11 @@ function renderProfile(){
       // Poll status with correct {hash} object param
       for(let i=0;i<10;i++){
         await new Promise(r=>setTimeout(r,2000));
-        const status = await rpcPost('gen_getTransactionStatus',[{hash}]).catch(e=>({error:e.message}));
+        const status = await rpcPost('gen_getTransactionStatus',[hash]).catch(e=>({error:e.message}));
         console.log(`4.${i} Status:`, JSON.stringify(status));
         const st = status?.status||'';
         if(st==='FINALIZED'||st==='ACCEPTED'){
-          const tx = await rpcPost('gen_getTransaction',[{hash}]).catch(e=>({error:e.message}));
+          const tx = await rpcPost('gen_getTransaction',[hash]).catch(e=>({error:e.message}));
           console.log('5. Full tx:', JSON.stringify(tx).slice(0,1000));
           break;
         }
