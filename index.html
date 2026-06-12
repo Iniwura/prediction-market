@@ -794,32 +794,31 @@ async function readContract(addr, method, args=[]) {
 
     if (!hash) return null;
 
-    // Poll for result
+    // Poll using eth_getTransactionReceipt (works with MetaMask hashes)
     for (let i = 0; i < 15; i++) {
       await new Promise(r => setTimeout(r, 2000));
       try {
-        const status = await rpcPost('gen_getTransactionStatus', [hash]);
-        const st = status?.status || status || '';
-        if (st === 'FINALIZED' || st === 'ACCEPTED') {
-          const tx = await rpcPost('gen_getTransaction', [hash]);
-          if (tx) {
-            // Return value is in consensus_data or leader_receipt
-            const rv = tx.consensus_data?.leader_receipt?.execution_result?.return_value
-                    || tx.leader_receipt?.execution_result?.return_value
-                    || tx.execution_result?.return_value
-                    || tx.result || tx.return_value || tx.data;
-            if (rv && typeof rv === 'string' && rv.startsWith('0x') && rv.length > 2) {
-              try {
+        const receipt = await rpcPost('eth_getTransactionReceipt', [hash]);
+        if (receipt) {
+          if (receipt.status === '0x0' || receipt.status === 0) return null;
+          // TX mined — try to get GenLayer result
+          try {
+            const tx = await rpcPost('gen_getTransaction', [hash]);
+            if (tx) {
+              const rv = tx.consensus_data?.leader_receipt?.execution_result?.return_value
+                      || tx.leader_receipt?.execution_result?.return_value
+                      || tx.execution_result?.return_value
+                      || tx.result || tx.return_value;
+              if (rv && typeof rv === 'string' && rv.startsWith('0x') && rv.length > 2) {
                 const bytes = new Uint8Array(rv.slice(2).match(/.{1,2}/g).map(b=>parseInt(b,16)));
                 return new TextDecoder().decode(bytes);
-              } catch {}
+              }
+              if (rv) return String(rv);
             }
-            if (rv) return String(rv);
-          }
-          return null;
+          } catch {}
+          return null; // mined but couldn't extract result
         }
-        if (st === 'CANCELLED' || st === 'REJECTED') return null;
-      } catch(e) { /* keep polling */ }
+      } catch {}
     }
     return null;
   } catch(e) {
@@ -914,39 +913,29 @@ function encodeCalldataMsgpack(method, args) {
 
 // ── POLL FOR FINALIZATION ────────────────────────────────
 async function waitTx(hash, maxTries=30) {
-  txLog(`Polling for consensus (up to ${maxTries * 3}s)…`, 'inf');
-  for (let i=0; i<maxTries; i++) {
-    await new Promise(r => setTimeout(r, 3000));
-    try {
-      // Try gen_getTransactionStatus first
-      let st = '';
-      try {
-        const r = await rpcPost('gen_getTransactionStatus', [hash]);
-        st = r?.status || r || '';
-      } catch {
-        // Fall back to eth_getTransactionReceipt
-        const receipt = await rpcPost('eth_getTransactionReceipt', [hash]);
-        if (receipt?.status === '0x1') st = 'FINALIZED';
-        else if (receipt?.status === '0x0') st = 'REJECTED';
-        else if (receipt) st = 'ACCEPTED';
+  txLog(`Polling for consensus (up to ${maxTries*3}s)…`,'inf');
+  for(let i=0;i<maxTries;i++){
+    await new Promise(r=>setTimeout(r,3000));
+    try{
+      // Use eth_getTransactionReceipt — works with MetaMask tx hashes
+      const receipt = await rpcPost('eth_getTransactionReceipt',[hash]);
+      if(receipt){
+        const s = receipt.status;
+        if(s==='0x1'||s===1){
+          txLog(`TX mined in block ${parseInt(receipt.blockNumber,16)} ✓`,'ok');
+          return {status:'ACCEPTED',receipt};
+        }
+        if(s==='0x0'||s===0) throw new Error('TX REJECTED — contract execution failed');
       }
-
-      if (st) txLog(`Status: ${st}`, 'inf');
-      if (st === 'FINALIZED' || st === 'ACCEPTED') return { status: st, hash };
-      if (st === 'CANCELLED' || st === 'REJECTED') throw new Error(`TX ${st}`);
-    } catch(e) {
-      if (e.message.startsWith('TX')) throw e;
-      // RPC error — keep polling
+      txLog(`Waiting [${i+1}/${maxTries}]…`,'inf');
+    }catch(e){
+      if(e.message.startsWith('TX ')) throw e;
     }
   }
-  // Timeout — but bet may still finalize. Record locally.
-  txLog('Consensus taking longer than expected — recording bet locally', 'inf');
-  return { status: 'PENDING', hash };
+  throw new Error('TX timeout — check https://explorer-bradbury.genlayer.com');
 }
 
-// ════════════════════════════════════════════════════════
-//  WALLET
-// ════════════════════════════════════════════════════════
+
 async function connectWallet() {
   if(!window.ethereum){
     toast('Install MetaMask from metamask.io','err');
@@ -1517,15 +1506,14 @@ function renderProfile(){
         }]});
       console.log('3. TX hash:', hash);
 
-      // Poll status with correct {hash} object param
       for(let i=0;i<10;i++){
         await new Promise(r=>setTimeout(r,2000));
-        const status = await rpcPost('gen_getTransactionStatus',[hash]).catch(e=>({error:e.message}));
-        console.log(`4.${i} Status:`, JSON.stringify(status));
-        const st = status?.status||'';
-        if(st==='FINALIZED'||st==='ACCEPTED'){
+        const receipt = await rpcPost('eth_getTransactionReceipt',[hash]).catch(e=>({error:e.message}));
+        console.log(`4.${i} Receipt:`, JSON.stringify(receipt).slice(0,200));
+        if(receipt && !receipt.error && receipt.status){
+          // Try gen_getTransaction for full details
           const tx = await rpcPost('gen_getTransaction',[hash]).catch(e=>({error:e.message}));
-          console.log('5. Full tx:', JSON.stringify(tx).slice(0,1000));
+          console.log('5. gen_getTransaction:', JSON.stringify(tx).slice(0,1000));
           break;
         }
       }
