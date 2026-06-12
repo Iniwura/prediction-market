@@ -572,11 +572,14 @@ const NET = {
 // ════════════════════════════════════════════════════════
 //  LOCAL MARKET CACHE (seeded from chain on load)
 // ════════════════════════════════════════════════════════
+// Markets are loaded from chain on connect.
+// Do NOT hardcode status here — it will be overwritten by chain data.
 let MARKETS = [
-  { question:'Will Bitcoin exceed $100,000 before July 2026?',
-    url:'https://coinmarketcap.com/currencies/bitcoin/',
-    deadline:'End of June 2026', yes:0, no:0, status:'OPEN',
-    addr:CONTRACT_ADDR, outcome:'', reasoning:'' }
+  { question:'Loading from chain…',
+    url:'', deadline:'', yes:0, no:0,
+    status:'LOADING', addr:CONTRACT_ADDR,
+    outcome:'', reasoning:'',
+    yes_pool:0, no_pool:0 }
 ];
 
 // ════════════════════════════════════════════════════════
@@ -995,21 +998,34 @@ async function refreshSingleMarket(idx) {
 }
 
 function parseLiveMarket(idx, raw) {
-  const lines=(raw||'').split('\n');
-  const get=k=>{const l=lines.find(l=>l.startsWith(k));return l?l.split(':').slice(1).join(':').trim():'';};
-  const yes=parseInt(get('YES bets'))||0;
-  const no=parseInt(get('NO bets'))||0;
-  const q=get('Question');
-  const status=get('Status');
-  const deadline=get('Deadline');
-  const outcome=get('Outcome');
-  const reasoning=get('Reasoning');
-  if(q) MARKETS[idx].question=q;
-  if(status) MARKETS[idx].status=status;
-  if(deadline) MARKETS[idx].deadline=deadline;
-  if(yes||no){MARKETS[idx].yes=yes;MARKETS[idx].no=no;}
-  if(outcome) MARKETS[idx].outcome=outcome;
-  if(reasoning) MARKETS[idx].reasoning=reasoning;
+  if(!raw){ txLog(`Market ${idx+1}: no data returned from chain`,'err'); return; }
+
+  txLog(`Market ${idx+1} raw: ${String(raw).slice(0,120)}`,'inf');
+
+  const lines = String(raw).split('\n');
+  const get = k => {
+    const l = lines.find(l => l.startsWith(k));
+    return l ? l.split(':').slice(1).join(':').trim() : '';
+  };
+
+  const status   = get('Status')   || 'EMPTY';
+  const question = get('Question') || 'No market created yet';
+  const deadline = get('Deadline') || '—';
+  const outcome  = get('Outcome')  || '';
+  const reasoning= get('Reasoning')|| '';
+
+  // Parse YES/NO counts from "X (Y%) — Z GEN staked" format
+  const yesLine = get('YES bets');
+  const noLine  = get('NO bets');
+  const yes = parseInt(yesLine) || 0;
+  const no  = parseInt(noLine)  || 0;
+
+  MARKETS[idx] = {
+    ...MARKETS[idx],
+    question, status, deadline, outcome, reasoning, yes, no
+  };
+
+  txLog(`Market ${idx+1}: [${status}] "${question.slice(0,50)}" YES:${yes} NO:${no}`,'ok');
 }
 
 // ════════════════════════════════════════════════════════
@@ -1037,20 +1053,27 @@ function marketCard(m, idx) {
         Connect wallet to bet
        </div>`;
 
-  // Status color
-  const statusColor = m.status==='OPEN'?'var(--blue)': m.status==='RESOLVED'?'var(--purple)':'var(--no)';
+  const statusColor = {OPEN:'var(--blue)',RESOLVED:'var(--purple)',CANCELLED:'var(--no)',EMPTY:'var(--muted)',LOADING:'var(--muted)'}[m.status]||'var(--muted)';
+  const statusLabel = {OPEN:'● OPEN',RESOLVED:'✓ RESOLVED',CANCELLED:'✕ CANCELLED',EMPTY:'○ NOT CREATED YET',LOADING:'⟳ LOADING…'}[m.status]||m.status;
+
+  // Show create market prompt if EMPTY and user is owner
+  const isOwner = S.account && S.account.toLowerCase() === OWNER_CHECK;
+  const emptyMsg = (m.status==='EMPTY'||m.status==='LOADING') ? `
+    <div style="padding:16px;text-align:center;font-size:12px;color:var(--muted);border-top:1px solid var(--border);margin-top:8px">
+      ${m.status==='LOADING'?'Reading from chain…':isOwner?'<span style="color:var(--blue);cursor:pointer" onclick="event.stopPropagation();openCreateMarket()">+ Create a market to enable betting →</span>':'No active market — check back soon'}
+    </div>` : betRow;
 
   return `
   <div class="mc" onclick="openDetail(${idx})">
-    <div class="ms" style="color:${statusColor}"><div class="dot" style="width:5px;height:5px;background:${statusColor};box-shadow:0 0 5px ${statusColor}"></div>${m.status}${m.status!=='OPEN'?' — bets closed':''}</div>
+    <div class="ms" style="color:${statusColor}">${statusLabel}</div>
     <div class="mq">${m.question}</div>
     <div class="mbar"><div class="mfill" style="width:${yp}%"></div></div>
     <div class="mmeta">
       <span style="color:var(--blue);font-weight:500">YES ${yp}%</span>
-      <span>${total} bets · ${m.deadline}</span>
+      <span>${total} bets · ${m.deadline||'—'}</span>
       <span style="color:var(--no);font-weight:500">NO ${100-yp}%</span>
     </div>
-    ${betRow}
+    ${(m.status==='EMPTY'||m.status==='LOADING') ? emptyMsg : betRow}
   </div>`;
 }
 
@@ -1358,7 +1381,13 @@ function renderProfile(){
   renderHomeMarkets();
   renderMarketsPage();
 
-  // Try to auto-reconnect
+  // Load market data from chain immediately (no wallet needed for reads)
+  refreshChainData().then(()=>{
+    renderHomeMarkets();
+    renderMarketsPage();
+  }).catch(e => txLog(`Chain read: ${e.message}`,'inf'));
+
+  // Try to auto-reconnect MetaMask
   if(window.ethereum){
     window.ethereum.request({method:'eth_accounts'}).then(accs=>{
       if(accs&&accs[0]){
@@ -1369,7 +1398,7 @@ function renderProfile(){
   }
 
   txLog('Gen Markets loaded — Bradbury Testnet','inf');
-  txLog('Connect MetaMask to start betting on-chain','');
+  txLog('Fetching market state from chain…','inf');
 })();
 </script>
 </body>
