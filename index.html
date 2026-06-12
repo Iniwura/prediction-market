@@ -1510,10 +1510,44 @@ function renderProfile(){
     readContract,
     // Quick test function — run window._GL.test() in console
     test: async () => {
-      console.log('Testing readContract for get_market_info...');
-      const r = await readContract(CONTRACT_ADDR, 'get_market_info', []);
-      console.log('Result:', r);
-      return r;
+      const addr = CONTRACT_ADDR;
+      const data = encodeCalldataMsgpack('get_market_info', []);
+      console.log('1. Calldata:', data);
+
+      const nonce = await rpcPost('eth_getTransactionCount', [S.account,'latest']);
+      const gasPrice = await rpcPost('eth_gasPrice',[]).catch(()=>'0x3B9ACA00');
+      console.log('2. Nonce:', nonce, 'GasPrice:', gasPrice);
+
+      let hash;
+      try {
+        const signed = await window.ethereum.request({method:'eth_signTransaction',params:[{
+          from:S.account,to:addr,data,gas:'0x7A120',gasPrice,nonce,value:'0x0',chainId:'0x107D'
+        }]});
+        console.log('3. Signed tx:', signed);
+        hash = await rpcPost('eth_sendRawTransaction',[signed]);
+      } catch(e) {
+        console.log('3. eth_signTransaction failed:', e.message, '— trying eth_sendTransaction');
+        hash = await window.ethereum.request({method:'eth_sendTransaction',params:[{
+          from:S.account,to:addr,data,gas:'0x7A120',gasPrice,nonce,value:'0x0',chainId:'0x107D'
+        }]});
+      }
+      console.log('4. TX hash:', hash);
+
+      // Poll status
+      for(let i=0;i<10;i++){
+        await new Promise(r=>setTimeout(r,2000));
+        const status = await rpcPost('gen_getTransactionStatus',[hash]).catch(e=>e.message);
+        console.log(`5.${i} Status:`, status);
+        if(status?.status==='FINALIZED'||status==='FINALIZED'||status?.status==='ACCEPTED'){
+          // Try every possible receipt method
+          const methods = ['gen_getTransaction','eth_getTransactionReceipt','eth_getTransactionByHash'];
+          for(const m of methods){
+            const tx = await rpcPost(m,[hash]).catch(e=>({error:e.message}));
+            console.log(`6. ${m}:`, JSON.stringify(tx).slice(0,500));
+          }
+          break;
+        }
+      }
     }
   };
   console.log('Debug: run window._GL.test() to test chain read');
