@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets — On-Chain Prediction Markets</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/genlayer-js@latest/dist/index.umd.js" onerror="console.warn('genlayer-js CDN failed')"></script>
 
 <style>
 :root{
@@ -759,94 +760,126 @@ async function rpcPost(method, params) {
   return d.result;
 }
 
-// ── CALLDATA ENCODING (MessagePack) ─────────────────────
-// GenLayer encodes calldata as: msgpack([method_name, [arg1, arg2, ...]])
+// ════════════════════════════════════════════════════════
+//  GENLAYER-JS CLIENT (handles correct calldata encoding)
+// ════════════════════════════════════════════════════════
 
-function _mp(val, buf) {
-  if (val === null || val === undefined) { buf.push(0xc0); }
-  else if (typeof val === 'boolean') { buf.push(val ? 0xc3 : 0xc2); }
-  else if (typeof val === 'number' && Number.isInteger(val)) {
-    if (val >= 0 && val <= 127) { buf.push(val); }
-    else if (val >= -32 && val < 0) { buf.push(0xe0 | (val + 32)); }
-    else if (val >= 0 && val <= 0xff) { buf.push(0xcc, val); }
-    else if (val >= 0 && val <= 0xffff) { buf.push(0xcd, val >> 8, val & 0xff); }
-    else if (val >= 0) { buf.push(0xce, (val>>>24)&0xff,(val>>>16)&0xff,(val>>>8)&0xff,val&0xff); }
-    else { buf.push(0xd1, (val>>8)&0xff, val&0xff); }
-  } else if (typeof val === 'number') {
-    const b=new ArrayBuffer(9); const dv=new DataView(b);
-    dv.setUint8(0,0xcb); dv.setFloat64(1,val,false);
-    for(let i=0;i<9;i++) buf.push(dv.getUint8(i));
-  } else if (typeof val === 'string') {
-    const bytes = new TextEncoder().encode(val);
-    const n = bytes.length;
-    if (n <= 31) buf.push(0xa0|n);
-    else if (n <= 0xff) buf.push(0xd9, n);
-    else if (n <= 0xffff) buf.push(0xda, n>>8, n&0xff);
-    for (const b of bytes) buf.push(b);
-  } else if (Array.isArray(val)) {
-    const n = val.length;
-    if (n <= 15) buf.push(0x90|n);
-    else if (n <= 0xffff) buf.push(0xdc, n>>8, n&0xff);
-    for (const v of val) _mp(v, buf);
-  } else if (typeof val === 'object') {
-    const keys = Object.keys(val);
-    const n = keys.length;
-    if (n <= 15) buf.push(0x80|n);
-    else if (n <= 0xffff) buf.push(0xde, n>>8, n&0xff);
-    for (const k of keys) { _mp(k, buf); _mp(val[k], buf); }
+function getGLClient() {
+  const GL = window.GenLayerJS || window.genlayerJs || window['genlayer-js'];
+  if (!GL) return null;
+  try {
+    const { createClient, bradbury } = GL;
+    return createClient({
+      chain: bradbury || { id: 4221, rpcUrl: RPC },
+      account: { type: 'window', provider: window.ethereum }
+    });
+  } catch(e) {
+    return null;
   }
 }
 
-function encodeCalldata(method, args) {
-  const buf = [];
-  _mp([method, args], buf);
-  return '0x' + buf.map(b => b.toString(16).padStart(2,'0')).join('');
-}
-
-// ── READ (gen_call) ──────────────────────────────────────
+// ── READ ─────────────────────────────────────────────────
 async function readContract(addr, method, args=[]) {
-  const data = encodeCalldata(method, args);
+  // Try SDK first
+  const client = getGLClient();
+  if (client) {
+    try {
+      const result = await client.readContract({
+        address: addr,
+        functionName: method,
+        args: args,
+        stateStatus: 'accepted'
+      });
+      return typeof result === 'object' ? JSON.stringify(result) : String(result);
+    } catch(e) {
+      txLog(`SDK read error: ${e.message} — trying raw RPC`, 'inf');
+    }
+  }
+  // Fallback: raw gen_call with msgpack encoding
+  const data = encodeCalldataMsgpack(method, args);
   const result = await rpcPost('gen_call', [{
     to:   addr,
     data: data,
     from: S.account || '0x0000000000000000000000000000000000000000'
   }, 'latest']);
-
-  // Decode hex result to string
   if (result && typeof result === 'string' && result.startsWith('0x')) {
     try {
-      const bytes = new Uint8Array(result.slice(2).match(/.{1,2}/g).map(b => parseInt(b,16)));
+      const bytes = new Uint8Array(result.slice(2).match(/.{1,2}/g).map(b=>parseInt(b,16)));
       return new TextDecoder().decode(bytes);
     } catch {}
   }
   return result;
 }
 
-// ── WRITE (MetaMask sign + gen_sendTransaction) ──────────
-// Per GenLayer docs: for MetaMask browser wallets, you send
-// via eth_sendTransaction — MetaMask signs it with the user's
-// key and broadcasts to the GenLayer node which routes it
-// through GenVM consensus.
+// ── WRITE ────────────────────────────────────────────────
 async function writeContract(addr, method, args=[], valueWei='0x0') {
   if (!window.ethereum || !S.account) throw new Error('Wallet not connected');
 
-  const data = encodeCalldata(method, args);
+  // Try SDK first — it uses correct encoding
+  const client = getGLClient();
+  if (client) {
+    try {
+      txLog(`Sending ${method}() via genlayer-js SDK…`, 'inf');
+      const hash = await client.writeContract({
+        address: addr,
+        functionName: method,
+        args: args,
+        value: valueWei !== '0x0' ? BigInt(valueWei) : 0n
+      });
+      txLog(`TX: ${String(hash).slice(0,20)}…`, 'ok');
+      return String(hash);
+    } catch(e) {
+      txLog(`SDK write error: ${e.message} — trying MetaMask direct`, 'inf');
+    }
+  }
 
-  // Use eth_sendTransaction — MetaMask handles signing
-  // GenLayer node receives it and routes through GenVM
+  // Fallback: MetaMask direct with msgpack encoding
+  txLog(`Sending ${method}() via MetaMask direct…`, 'inf');
+  const data = encodeCalldataMsgpack(method, args);
   const hash = await window.ethereum.request({
     method: 'eth_sendTransaction',
     params: [{
       from:  S.account,
       to:    addr,
       data:  data,
-      gas:   '0x493E0',   // 300,000 gas
+      gas:   '0x493E0',
       value: valueWei
     }]
   });
-
-  txLog(`TX hash: ${hash.slice(0,20)}…`, 'ok');
+  txLog(`TX: ${hash.slice(0,20)}…`, 'ok');
   return hash;
+}
+
+// ── MSGPACK FALLBACK ENCODER ─────────────────────────────
+function _mp(val, buf) {
+  if (val === null || val === undefined) { buf.push(0xc0); }
+  else if (typeof val === 'boolean') { buf.push(val ? 0xc3 : 0xc2); }
+  else if (typeof val === 'number' && Number.isInteger(val) && val >= 0 && val <= 127) { buf.push(val); }
+  else if (typeof val === 'number' && Number.isInteger(val) && val >= -32 && val < 0) { buf.push(0xe0|(val+32)); }
+  else if (typeof val === 'number' && Number.isInteger(val) && val >= 0 && val <= 0xff) { buf.push(0xcc,val); }
+  else if (typeof val === 'number' && Number.isInteger(val) && val >= 0 && val <= 0xffff) { buf.push(0xcd,val>>8,val&0xff); }
+  else if (typeof val === 'number' && Number.isInteger(val) && val >= 0) { buf.push(0xce,(val>>>24)&0xff,(val>>>16)&0xff,(val>>>8)&0xff,val&0xff); }
+  else if (typeof val === 'number') {
+    const b=new ArrayBuffer(9);const dv=new DataView(b);dv.setUint8(0,0xcb);dv.setFloat64(1,val,false);
+    for(let i=0;i<9;i++)buf.push(dv.getUint8(i));
+  } else if (typeof val === 'string') {
+    const bytes=new TextEncoder().encode(val);const n=bytes.length;
+    if(n<=31)buf.push(0xa0|n);else if(n<=0xff)buf.push(0xd9,n);else buf.push(0xda,n>>8,n&0xff);
+    for(const b of bytes)buf.push(b);
+  } else if (Array.isArray(val)) {
+    const n=val.length;
+    if(n<=15)buf.push(0x90|n);else buf.push(0xdc,n>>8,n&0xff);
+    for(const v of val)_mp(v,buf);
+  } else if (typeof val === 'object') {
+    const keys=Object.keys(val);const n=keys.length;
+    if(n<=15)buf.push(0x80|n);else buf.push(0xde,n>>8,n&0xff);
+    for(const k of keys){_mp(k,buf);_mp(val[k],buf);}
+  }
+}
+
+function encodeCalldataMsgpack(method, args) {
+  const buf=[];_mp([method,args],buf);
+  return '0x'+buf.map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 
 // ── POLL FOR FINALIZATION ────────────────────────────────
