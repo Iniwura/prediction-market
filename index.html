@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8"><!-- v1781303537 -->
+<meta charset="UTF-8"><!-- v1781303778 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets — On-Chain Prediction Markets</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -791,10 +791,27 @@ async function readContract(addr, method, args=[]) {
     }
     txLog(`gen_call OK: ${JSON.stringify(result).slice(0,80)}`,'ok');
     const raw = typeof result==='string'?result
-      :result.output||result.data||result.result||result.return_value;
-    if (raw && typeof raw==='string' && raw.startsWith('0x') && raw.length>2) {
+      :result.data||result.output||result.result||result.return_value;
+    if (raw && typeof raw==='string' && raw.length>0) {
+      // raw is hex string (may or may not have 0x prefix)
+      const hex = raw.startsWith('0x') ? raw.slice(2) : raw;
       try {
-        const bytes=new Uint8Array(raw.slice(2).match(/.{1,2}/g).map(b=>parseInt(b,16)));
+        const bytes = new Uint8Array(hex.match(/.{1,2}/g).map(b=>parseInt(b,16)));
+        // Decode GL-encoded string: skip type header bytes (varint), read string content
+        let pos = 0;
+        let varint = 0, shift = 0;
+        while (pos < bytes.length) {
+          const b = bytes[pos++];
+          varint |= (b & 0x7f) << shift;
+          shift += 7;
+          if (!(b & 0x80)) break;
+        }
+        const typ = varint & 7;  // 4 = TYPE_STR
+        const len = varint >> 3;
+        if (typ === 4 && pos + len <= bytes.length) {
+          return new TextDecoder().decode(bytes.slice(pos, pos + len));
+        }
+        // Fallback: try raw UTF-8 decode
         return new TextDecoder().decode(bytes);
       } catch {}
     }
