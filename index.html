@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8"><!-- v1781302863 -->
+<meta charset="UTF-8"><!-- v1781303096 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets — On-Chain Prediction Markets</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -774,15 +774,24 @@ async function rpcPost(method, params) {
 // Successful response has result.data = hex-encoded return value
 async function readContract(addr, method, args=[]) {
   const from = S.account || '0x0000000000000000000000000000000000000000';
-  const data = encodeForRead(method, args);  // raw GL encoding, no RLP
+  // gen_call needs RLP([encode(obj), encode(leaderOnly)]) with capital Type/Data fields
+  const data = encodeCalldataMsgpack(method, args, false);
   try {
-    const result = await rpcPost('gen_call', [{to:addr, data, from, type:'read', gas:'0x7A120', value:'0x0'}]);
+    const result = await rpcPost('gen_call', [{
+      to:   addr,
+      from: from,
+      Data: data,
+      Type: 'read',
+      gas:  '0x7A120',
+      value:'0x0'
+    }]);
     if (!result || result.error) {
-      txLog(`gen_call exception: ${JSON.stringify(result?.error||result).slice(0,80)}`,'err');
+      txLog(`gen_call error: ${JSON.stringify(result?.error||result).slice(0,120)}`,'err');
       return null;
     }
-    txLog(`gen_call OK: ${JSON.stringify(result).slice(0,60)}`,'ok');
-    const raw = typeof result==='string'?result:result.output||result.data||result.result||result.return_value;
+    txLog(`gen_call OK: ${JSON.stringify(result).slice(0,80)}`,'ok');
+    const raw = typeof result==='string'?result
+      :result.output||result.data||result.result||result.return_value;
     if (raw && typeof raw==='string' && raw.startsWith('0x') && raw.length>2) {
       try {
         const bytes=new Uint8Array(raw.slice(2).match(/.{1,2}/g).map(b=>parseInt(b,16)));
