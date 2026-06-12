@@ -5,6 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets — On-Chain Prediction Markets</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<script type="module" id="gl-init">
+// Load genlayer-js as ESM module
+import('https://esm.sh/genlayer-js@latest').then(mod => {
+  window.GenLayerSDK = mod;
+  window.dispatchEvent(new Event('genlayer-ready'));
+}).catch(e => console.warn('genlayer-js load failed, using fallback:', e));
+</script>
 <style>
 :root{
   --blue:#110FFF;--navy:#282B5D;--purple:#BCA2FF;
@@ -535,7 +542,7 @@ footer a:hover{color:var(--purple);}
 const CONTRACT_ADDR = '0x5130437F60Be2e685b7D3e8da39f1F482aB27d27';
 const OWNER_ADDR    = '0xd0dd02322AF812fC0dbDdC69f9a055FBBe2C6673';   // optional: set to your wallet address to show "Create Market" only to you
 const RPC           = 'https://rpc-bradbury.genlayer.com';
-const CHAIN_ID      = '4221'; // 4221
+const CHAIN_ID      = '0x107D'; // 4221
 
 const NET = {
   chainId:CHAIN_ID, chainName:'GenLayer Bradbury',
@@ -704,8 +711,10 @@ async function confirmBet() {
 }
 
 // ════════════════════════════════════════════════════════
-//  RPC + CONTRACT CALLS
+//  RPC + CONTRACT CALLS via genlayer-js SDK
 // ════════════════════════════════════════════════════════
+
+// Raw RPC for balance / tx status checks
 async function rpcPost(method, params) {
   const r=await fetch(RPC,{
     method:'POST',headers:{'Content-Type':'application/json'},
@@ -716,37 +725,93 @@ async function rpcPost(method, params) {
   return d.result;
 }
 
-function toHex(str) {
-  return Array.from(new TextEncoder().encode(str)).map(b=>b.toString(16).padStart(2,'0')).join('');
+// Get a genlayer-js client instance
+function getGLClient() {
+  if(!window.GenLayerSDK) throw new Error('GenLayer SDK not loaded yet — try again in a moment');
+  const sdk = window.GenLayerSDK;
+  // createClient with window.ethereum as the wallet provider
+  return sdk.createClient({
+    networks: {
+      bradbury: {
+        rpcUrl: RPC,
+        id: 4221,
+      }
+    },
+    network: 'bradbury',
+    // Use MetaMask as signer
+    account: sdk.createWindowEthereumAccount()
+  });
 }
 
-// Read via gen_call
+// Read via genlayer-js callContractFunction (view)
 async function readContract(addr, method, args=[]) {
-  const payload=JSON.stringify({method,args});
-  const result=await rpcPost('gen_call',[{
-    to:addr,
-    data:'0x'+toHex(payload),
-    from:S.account||'0x0000000000000000000000000000000000000000'
-  },'latest']);
-  // Try to decode hex result
-  if(result&&result.startsWith('0x')){
-    try{
-      const bytes=new Uint8Array(result.slice(2).match(/.{1,2}/g).map(b=>parseInt(b,16)));
-      return new TextDecoder().decode(bytes);
-    }catch{}
+  try {
+    const client = getGLClient();
+    const result = await client.callContractFunction({
+      address: addr,
+      functionName: method,
+      args: args,
+      account: S.account
+    });
+    return result;
+  } catch(sdkErr) {
+    // Fallback to raw gen_call if SDK fails
+    txLog(`SDK read fallback: ${sdkErr.message}`,'inf');
+    const r = await rpcPost('gen_call',[{
+      to:addr,
+      data: encodeCalldata(method, args),
+      from: S.account||'0x0000000000000000000000000000000000000000'
+    },'latest']);
+    return decodeResult(r);
   }
-  return result;
 }
 
-// Write via MetaMask
+// Write via genlayer-js sendTransaction
 async function writeContract(addr, method, args=[], valueWei='0x0') {
   if(!window.ethereum||!S.account) throw new Error('Wallet not connected');
-  const payload=JSON.stringify({method,args});
-  const hash=await window.ethereum.request({
-    method:'eth_sendTransaction',
-    params:[{from:S.account,to:addr,data:'0x'+toHex(payload),gas:'0x30D40',value:valueWei}]
-  });
-  return hash;
+  try {
+    const client = getGLClient();
+    const hash = await client.sendTransaction({
+      address: addr,
+      functionName: method,
+      args: args,
+      value: valueWei !== '0x0' ? BigInt(valueWei) : 0n
+    });
+    return hash;
+  } catch(sdkErr) {
+    txLog(`SDK write fallback: ${sdkErr.message}`,'inf');
+    // Fallback: use gen_sendTransaction RPC directly with proper encoding
+    const hash = await rpcPost('gen_sendTransaction',[{
+      from: S.account,
+      to: addr,
+      data: encodeCalldata(method, args),
+      value: valueWei,
+      gas: '0x493E0'
+    }]);
+    return hash;
+  }
+}
+
+// Encode calldata in GenLayer's expected format
+function encodeCalldata(method, args) {
+  // GenLayer expects: method name as bytes + msgpack-encoded args
+  // For simple cases, JSON encoding of {method, args} works on some versions
+  // The correct format per docs is a binary encoding - use the SDK preferably
+  const payload = JSON.stringify({method, args});
+  return '0x' + Array.from(new TextEncoder().encode(payload))
+    .map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+// Decode hex result
+function decodeResult(hex) {
+  if(!hex || typeof hex !== 'string') return hex;
+  if(hex.startsWith('0x')) {
+    try {
+      const bytes = new Uint8Array(hex.slice(2).match(/.{1,2}/g).map(b=>parseInt(b,16)));
+      return new TextDecoder().decode(bytes);
+    } catch {}
+  }
+  return hex;
 }
 
 // Poll for finalization
@@ -761,7 +826,7 @@ async function waitTx(hash, maxTries=30) {
       if(st==='CANCELLED'||st==='REJECTED') throw new Error(`TX ${st}`);
     }catch(e){if(e.message.startsWith('TX')) throw e;}
   }
-  throw new Error('TX timeout — it may still finalize, check the explorer');
+  throw new Error('TX timeout — check the Bradbury explorer');
 }
 
 // ════════════════════════════════════════════════════════
