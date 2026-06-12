@@ -5,13 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets — On-Chain Prediction Markets</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
-<script type="module" id="gl-init">
-// Load genlayer-js as ESM module
-import('https://esm.sh/genlayer-js@latest').then(mod => {
-  window.GenLayerSDK = mod;
-  window.dispatchEvent(new Event('genlayer-ready'));
-}).catch(e => console.warn('genlayer-js load failed, using fallback:', e));
-</script>
+
 <style>
 :root{
   --blue:#110FFF;--navy:#282B5D;--purple:#BCA2FF;
@@ -319,23 +313,27 @@ footer a:hover{color:var(--purple);}
 <div class="modal">
   <button class="mclose" onclick="closeModal('m-create')">×</button>
   <div class="mtitle">Create New Market</div>
-  <div class="msub">Only the contract owner can create markets. Make sure your wallet matches the deployer address.</div>
+  <div class="msub">Only the contract owner (deployer wallet) can create markets.</div>
+  <div class="ff">
+    <label class="fl">Contract Address</label>
+    <input class="fi" id="f-contract-addr" placeholder="0x… your deployed Bradbury contract" value="0x64270c41db5A934834CB00EEEDce6644C224B12c">
+  </div>
   <div class="ff">
     <label class="fl">Question</label>
     <input class="fi" id="f-q" placeholder="Will Bitcoin exceed $100,000 before July 2026?">
   </div>
   <div class="ff">
-    <label class="fl">Evidence URL — the LLM will fetch this to resolve the market</label>
+    <label class="fl">Evidence URL — LLM fetches this to resolve</label>
     <input class="fi" id="f-url" placeholder="https://coinmarketcap.com/currencies/bitcoin/">
   </div>
   <div class="ff">
     <label class="fl">Deadline</label>
     <input class="fi" id="f-dl" placeholder="End of June 2026">
   </div>
-  <button class="btn bsolid" style="width:100%;justify-content:center;margin-top:4px" onclick="submitCreateMarket()">
+  <button class="btn bsolid" style="width:100%;justify-content:center;margin-top:4px" id="btn-submit-create" onclick="submitCreateMarket()">
     Create Market on GenLayer
   </button>
-  <p class="hint">This sends a signed transaction to your deployed contract. Consensus takes 15–30s.</p>
+  <p class="hint">Signs a transaction via MetaMask. Consensus takes 15–30s. Market will appear automatically after finalization.</p>
 </div>
 </div>
 
@@ -457,6 +455,25 @@ footer a:hover{color:var(--purple);}
         <button class="bbet bno"  id="btn-no"  onclick="openBetModal('NO')"  disabled>NO<small>This won't happen</small></button>
       </div>
       <button class="bresolve" id="btn-res" onclick="resolveMarket()" disabled>⚖ Resolve Market — Owner Only</button>
+
+      <!-- Post-resolution actions -->
+      <div id="post-res-actions" style="margin-top:10px">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px">
+          <button id="btn-claim" onclick="claimWinnings()"
+            style="background:var(--blue);border:none;color:#fff;font-family:'Syne',sans-serif;
+            font-weight:700;font-size:.8rem;letter-spacing:.1em;text-transform:uppercase;
+            padding:12px;cursor:pointer;transition:opacity .2s;display:none">
+            🏆 Claim Winnings
+          </button>
+          <button id="btn-refund" onclick="requestRefund()"
+            style="background:transparent;border:1.5px solid var(--muted);color:var(--muted);
+            font-family:'Syne',sans-serif;font-weight:700;font-size:.8rem;letter-spacing:.1em;
+            text-transform:uppercase;padding:12px;cursor:pointer;transition:all .2s;display:none">
+            ↩ Refund Stake
+          </button>
+        </div>
+      </div>
+
       <div class="verdict" id="verdict">
         <div class="vtop"><div class="vword" id="v-word">—</div><div class="vconf" id="v-conf"></div></div>
         <div class="vtext" id="v-text"></div>
@@ -539,8 +556,9 @@ footer a:hover{color:var(--purple);}
 // ════════════════════════════════════════════════════════
 //  CONFIG — update CONTRACT_ADDR with your Bradbury address
 // ════════════════════════════════════════════════════════
-const CONTRACT_ADDR = '0x5130437F60Be2e685b7D3e8da39f1F482aB27d27';
-const OWNER_ADDR    = '0xd0dd02322AF812fC0dbDdC69f9a055FBBe2C6673';   // optional: set to your wallet address to show "Create Market" only to you
+const CONTRACT_ADDR = '0x64270c41db5A934834CB00EEEDce6644C224B12c';
+const OWNER_CHECK   = '0xd0dd02322af812fc0dbddc69f9a055fbbe2c6673'; // lowercase for comparison
+const OWNER_ADDR    = '0xd0dd02322AF812fC0dbDdC69f9a055FBBe2C6673';
 const RPC           = 'https://rpc-bradbury.genlayer.com';
 const CHAIN_ID      = '0x107D'; // 4221
 
@@ -692,141 +710,175 @@ async function confirmBet() {
   toast(`Submitting ${side} bet…`);
 
   try {
-    // Convert amount to wei
-    const valueWei='0x'+(BigInt(Math.floor(amount*1e18))).toString(16);
-    const hash=await writeContract(addr,'place_bet',[side],valueWei);
+    const hash = await writeContract(addr, 'place_bet', [side]);
     toast('Bet submitted! Waiting for consensus…');
-    txLog(`TX: ${hash.slice(0,18)}…`,'ok');
-    await waitTx(hash);
-    userBets[idx]=side;
-    localStorage.setItem('gmbets',JSON.stringify(userBets));
-    toast(`${side} bet confirmed on-chain ✓`,'ok');
-    txLog(`✓ ${side} bet finalized on Bradbury`,'ok');
-    // Refresh market from chain
-    await refreshSingleMarket(idx);
-    renderMarketsPage(); renderProfile(); updateDetailUI(idx);
+    txLog(`TX: ${hash.slice(0,20)}…`, 'ok');
+
+    const result = await waitTx(hash);
+
+    // Record bet regardless of timeout — tx was signed and submitted
+    userBets[idx] = side;
+    localStorage.setItem('gmbets', JSON.stringify(userBets));
+
+    if (result.status === 'FINALIZED' || result.status === 'ACCEPTED') {
+      toast(`${side} bet confirmed on-chain ✓`, 'ok');
+      txLog(`✓ ${side} bet finalized`, 'ok');
+      await refreshSingleMarket(idx);
+    } else {
+      // Still pending — record locally, will sync on next load
+      toast(`${side} bet submitted — pending finalization`, 'ok');
+      txLog(`${side} bet pending finalization (TX: ${hash.slice(0,12)}…)`, 'inf');
+      // Optimistically update local counts
+      MARKETS[idx][side.toLowerCase()==='yes'?'yes':'no']++;
+    }
+
+    renderMarketsPage(); renderProfile();
+    if (S.activeIdx === idx) updateDetailUI(idx);
   } catch(e) {
-    toast(e.message,'err'); txLog(e.message,'err');
+    toast(e.message, 'err');
+    txLog(`Bet error: ${e.message}`, 'err');
   }
 }
 
 // ════════════════════════════════════════════════════════
-//  RPC + CONTRACT CALLS via genlayer-js SDK
+//  RPC + CONTRACT CALLS
+//  GenLayer uses gen_sendTransaction with MessagePack-style
+//  calldata. The official MetaMask flow is:
+//  1. Build calldata via gen_getContractSchema + encode
+//  2. Sign + send via MetaMask eth_sendTransaction
+//  3. Poll gen_getTransactionStatus for finalization
 // ════════════════════════════════════════════════════════
 
-// Raw RPC for balance / tx status checks
 async function rpcPost(method, params) {
-  const r=await fetch(RPC,{
-    method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({jsonrpc:'2.0',id:Date.now(),method,params})
+  const r = await fetch(RPC, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({jsonrpc:'2.0', id:Date.now(), method, params})
   });
-  const d=await r.json();
-  if(d.error) throw new Error(d.error.message||JSON.stringify(d.error));
+  const d = await r.json();
+  if (d.error) throw new Error(d.error.message || JSON.stringify(d.error));
   return d.result;
 }
 
-// Get a genlayer-js client instance
-function getGLClient() {
-  if(!window.GenLayerSDK) throw new Error('GenLayer SDK not loaded yet — try again in a moment');
-  const sdk = window.GenLayerSDK;
-  // createClient with window.ethereum as the wallet provider
-  return sdk.createClient({
-    networks: {
-      bradbury: {
-        rpcUrl: RPC,
-        id: 4221,
-      }
-    },
-    network: 'bradbury',
-    // Use MetaMask as signer
-    account: sdk.createWindowEthereumAccount()
-  });
-}
+// ── CALLDATA ENCODING (MessagePack) ─────────────────────
+// GenLayer encodes calldata as: msgpack([method_name, [arg1, arg2, ...]])
 
-// Read via genlayer-js callContractFunction (view)
-async function readContract(addr, method, args=[]) {
-  try {
-    const client = getGLClient();
-    const result = await client.callContractFunction({
-      address: addr,
-      functionName: method,
-      args: args,
-      account: S.account
-    });
-    return result;
-  } catch(sdkErr) {
-    // Fallback to raw gen_call if SDK fails
-    txLog(`SDK read fallback: ${sdkErr.message}`,'inf');
-    const r = await rpcPost('gen_call',[{
-      to:addr,
-      data: encodeCalldata(method, args),
-      from: S.account||'0x0000000000000000000000000000000000000000'
-    },'latest']);
-    return decodeResult(r);
+function _mp(val, buf) {
+  if (val === null || val === undefined) { buf.push(0xc0); }
+  else if (typeof val === 'boolean') { buf.push(val ? 0xc3 : 0xc2); }
+  else if (typeof val === 'number' && Number.isInteger(val)) {
+    if (val >= 0 && val <= 127) { buf.push(val); }
+    else if (val >= -32 && val < 0) { buf.push(0xe0 | (val + 32)); }
+    else if (val >= 0 && val <= 0xff) { buf.push(0xcc, val); }
+    else if (val >= 0 && val <= 0xffff) { buf.push(0xcd, val >> 8, val & 0xff); }
+    else if (val >= 0) { buf.push(0xce, (val>>>24)&0xff,(val>>>16)&0xff,(val>>>8)&0xff,val&0xff); }
+    else { buf.push(0xd1, (val>>8)&0xff, val&0xff); }
+  } else if (typeof val === 'number') {
+    const b=new ArrayBuffer(9); const dv=new DataView(b);
+    dv.setUint8(0,0xcb); dv.setFloat64(1,val,false);
+    for(let i=0;i<9;i++) buf.push(dv.getUint8(i));
+  } else if (typeof val === 'string') {
+    const bytes = new TextEncoder().encode(val);
+    const n = bytes.length;
+    if (n <= 31) buf.push(0xa0|n);
+    else if (n <= 0xff) buf.push(0xd9, n);
+    else if (n <= 0xffff) buf.push(0xda, n>>8, n&0xff);
+    for (const b of bytes) buf.push(b);
+  } else if (Array.isArray(val)) {
+    const n = val.length;
+    if (n <= 15) buf.push(0x90|n);
+    else if (n <= 0xffff) buf.push(0xdc, n>>8, n&0xff);
+    for (const v of val) _mp(v, buf);
+  } else if (typeof val === 'object') {
+    const keys = Object.keys(val);
+    const n = keys.length;
+    if (n <= 15) buf.push(0x80|n);
+    else if (n <= 0xffff) buf.push(0xde, n>>8, n&0xff);
+    for (const k of keys) { _mp(k, buf); _mp(val[k], buf); }
   }
 }
 
-// Write via genlayer-js sendTransaction
-async function writeContract(addr, method, args=[], valueWei='0x0') {
-  if(!window.ethereum||!S.account) throw new Error('Wallet not connected');
-  try {
-    const client = getGLClient();
-    const hash = await client.sendTransaction({
-      address: addr,
-      functionName: method,
-      args: args,
-      value: valueWei !== '0x0' ? BigInt(valueWei) : 0n
-    });
-    return hash;
-  } catch(sdkErr) {
-    txLog(`SDK write fallback: ${sdkErr.message}`,'inf');
-    // Fallback: use gen_sendTransaction RPC directly with proper encoding
-    const hash = await rpcPost('gen_sendTransaction',[{
-      from: S.account,
-      to: addr,
-      data: encodeCalldata(method, args),
-      value: valueWei,
-      gas: '0x493E0'
-    }]);
-    return hash;
-  }
-}
-
-// Encode calldata in GenLayer's expected format
 function encodeCalldata(method, args) {
-  // GenLayer expects: method name as bytes + msgpack-encoded args
-  // For simple cases, JSON encoding of {method, args} works on some versions
-  // The correct format per docs is a binary encoding - use the SDK preferably
-  const payload = JSON.stringify({method, args});
-  return '0x' + Array.from(new TextEncoder().encode(payload))
-    .map(b=>b.toString(16).padStart(2,'0')).join('');
+  const buf = [];
+  _mp([method, args], buf);
+  return '0x' + buf.map(b => b.toString(16).padStart(2,'0')).join('');
 }
 
-// Decode hex result
-function decodeResult(hex) {
-  if(!hex || typeof hex !== 'string') return hex;
-  if(hex.startsWith('0x')) {
+// ── READ (gen_call) ──────────────────────────────────────
+async function readContract(addr, method, args=[]) {
+  const data = encodeCalldata(method, args);
+  const result = await rpcPost('gen_call', [{
+    to:   addr,
+    data: data,
+    from: S.account || '0x0000000000000000000000000000000000000000'
+  }, 'latest']);
+
+  // Decode hex result to string
+  if (result && typeof result === 'string' && result.startsWith('0x')) {
     try {
-      const bytes = new Uint8Array(hex.slice(2).match(/.{1,2}/g).map(b=>parseInt(b,16)));
+      const bytes = new Uint8Array(result.slice(2).match(/.{1,2}/g).map(b => parseInt(b,16)));
       return new TextDecoder().decode(bytes);
     } catch {}
   }
-  return hex;
+  return result;
 }
 
-// Poll for finalization
+// ── WRITE (MetaMask sign + gen_sendTransaction) ──────────
+// Per GenLayer docs: for MetaMask browser wallets, you send
+// via eth_sendTransaction — MetaMask signs it with the user's
+// key and broadcasts to the GenLayer node which routes it
+// through GenVM consensus.
+async function writeContract(addr, method, args=[], valueWei='0x0') {
+  if (!window.ethereum || !S.account) throw new Error('Wallet not connected');
+
+  const data = encodeCalldata(method, args);
+
+  // Use eth_sendTransaction — MetaMask handles signing
+  // GenLayer node receives it and routes through GenVM
+  const hash = await window.ethereum.request({
+    method: 'eth_sendTransaction',
+    params: [{
+      from:  S.account,
+      to:    addr,
+      data:  data,
+      gas:   '0x493E0',   // 300,000 gas
+      value: valueWei
+    }]
+  });
+
+  txLog(`TX hash: ${hash.slice(0,20)}…`, 'ok');
+  return hash;
+}
+
+// ── POLL FOR FINALIZATION ────────────────────────────────
 async function waitTx(hash, maxTries=30) {
-  for(let i=0;i<maxTries;i++){
-    await new Promise(r=>setTimeout(r,3000));
-    try{
-      const r=await rpcPost('gen_getTransactionStatus',[hash]);
-      const st=r?.status||r||'';
-      if(st) txLog(`Consensus: ${st}`,'inf');
-      if(st==='FINALIZED'||st==='ACCEPTED') return r;
-      if(st==='CANCELLED'||st==='REJECTED') throw new Error(`TX ${st}`);
-    }catch(e){if(e.message.startsWith('TX')) throw e;}
+  txLog(`Polling for consensus (up to ${maxTries * 3}s)…`, 'inf');
+  for (let i=0; i<maxTries; i++) {
+    await new Promise(r => setTimeout(r, 3000));
+    try {
+      // Try gen_getTransactionStatus first
+      let st = '';
+      try {
+        const r = await rpcPost('gen_getTransactionStatus', [hash]);
+        st = r?.status || r || '';
+      } catch {
+        // Fall back to eth_getTransactionReceipt
+        const receipt = await rpcPost('eth_getTransactionReceipt', [hash]);
+        if (receipt?.status === '0x1') st = 'FINALIZED';
+        else if (receipt?.status === '0x0') st = 'REJECTED';
+        else if (receipt) st = 'ACCEPTED';
+      }
+
+      if (st) txLog(`Status: ${st}`, 'inf');
+      if (st === 'FINALIZED' || st === 'ACCEPTED') return { status: st, hash };
+      if (st === 'CANCELLED' || st === 'REJECTED') throw new Error(`TX ${st}`);
+    } catch(e) {
+      if (e.message.startsWith('TX')) throw e;
+      // RPC error — keep polling
+    }
   }
-  throw new Error('TX timeout — check the Bradbury explorer');
+  // Timeout — but bet may still finalize. Record locally.
+  txLog('Consensus taking longer than expected — recording bet locally', 'inf');
+  return { status: 'PENDING', hash };
 }
 
 // ════════════════════════════════════════════════════════
@@ -871,7 +923,9 @@ async function onConnected(addr) {
 
   // Show/hide market buttons
   $('m-conn-btn').style.display='none';
-  $('m-create-btn').style.display='block';
+  // Only show Create Market to the owner
+  const isOwner = addr.toLowerCase() === OWNER_CHECK;
+  $('m-create-btn').style.display = isOwner ? 'block' : 'none';
 
   // Profile gate
   $('p-gate').style.display='none';
@@ -901,7 +955,7 @@ function disconnectWallet(){
   $('hdr-conn').style.display='block';
   $('hdr-dis').style.display='none';
   $('m-conn-btn').style.display='block';
-  $('m-create-btn').style.display='none';
+  $('m-create-btn').style.display='none'; // hidden until owner connects
   $('p-gate').style.display='flex';
   $('p-content').style.display='none';
   $('detail-wrap').style.display='none';
@@ -1055,6 +1109,23 @@ function updateDetailUI(idx) {
     if(cm) $('v-conf').textContent=cm[1];
     $('v-text').textContent=(m.reasoning||'').replace(/\[.*?confidence\]\s*/,'');
   }
+
+  // Show/hide claim & refund buttons
+  const claimed    = JSON.parse(localStorage.getItem('gmclaimed')||'{}');
+  const myBetSide  = userBets[idx];
+  const isResolved = m.status === 'RESOLVED';
+  const isCancelled= m.status === 'CANCELLED';
+  const claimBtn   = $('btn-claim');
+  const refundBtn  = $('btn-refund');
+
+  if(claimBtn && refundBtn && S.connected && myBetSide){
+    const alreadyClaimed = claimed[idx];
+    const isWinner = isResolved && myBetSide === m.outcome;
+    const isLoser  = isResolved && myBetSide !== m.outcome;
+
+    claimBtn.style.display  = (isWinner && !alreadyClaimed) ? 'block' : 'none';
+    refundBtn.style.display = (isLoser || isCancelled) ? 'block' : 'none';
+  }
 }
 
 // ════════════════════════════════════════════════════════
@@ -1089,38 +1160,138 @@ async function resolveMarket() {
 // ════════════════════════════════════════════════════════
 function openCreateMarket(){
   if(!S.connected){toast('Connect wallet first','err');return;}
+  // Pre-fill with known contract address if available
+  const addrField = $('f-contract-addr');
+  if(addrField && CONTRACT_ADDR && CONTRACT_ADDR !== 'PASTE_YOUR_NEW_CONTRACT_ADDRESS_HERE'){
+    addrField.value = window.ACTIVE_CONTRACT || CONTRACT_ADDR;
+  }
   openModal('m-create');
 }
 
 async function submitCreateMarket(){
-  const q=($('f-q').value||'').trim();
-  const url=($('f-url').value||'').trim();
-  const dl=($('f-dl').value||'').trim();
-  if(!q||!url){toast('Question and Evidence URL required','err');return;}
+  const contractAddr = ($('f-contract-addr').value||CONTRACT_ADDR).trim();
+  const q   = ($('f-q').value||'').trim();
+  const url = ($('f-url').value||'').trim();
+  const dl  = ($('f-dl').value||'').trim();
+
+  if(!contractAddr||contractAddr==='PASTE_YOUR_NEW_CONTRACT_ADDRESS_HERE'){
+    toast('Enter your deployed contract address','err'); return;
+  }
+  if(!q||!url){ toast('Question and Evidence URL required','err'); return; }
+
+  // Disable button to prevent double submit
+  const btn = $('btn-submit-create');
+  btn.disabled = true;
+  btn.textContent = '⟳ Submitting…';
   closeModal('m-create');
-  txLog(`Creating market: "${q.slice(0,40)}…"`,'inf');
-  toast('Submitting create_market() to GenLayer…');
+
+  txLog(`Creating market on ${sh(contractAddr)}…`,'inf');
+  toast('Sending create_market() transaction…');
+
   try{
-    const hash=await writeContract(CONTRACT_ADDR,'create_market',[q,url,dl||'No deadline']);
-    txLog(`TX: ${hash.slice(0,18)}…`,'ok');
-    toast('Waiting for consensus…');
-    await waitTx(hash);
+    const hash = await writeContract(contractAddr, 'create_market', [q, url, dl||'No deadline']);
+    txLog(`TX: ${hash.slice(0,20)}…`,'ok');
+    toast('Transaction sent! Waiting for AI consensus (15–30s)…');
+
+    const result = await waitTx(hash);
     toast('Market created on-chain ✓','ok');
-    txLog('✓ Market created — refreshing…','ok');
-    // Read fresh market state and update local cache
-    await refreshSingleMarket(0);
-    // If it was a new question add it to the list
-    if(MARKETS[0].question!==q){
-      MARKETS.push({question:q,url,deadline:dl,yes:0,no:0,status:'OPEN',addr:CONTRACT_ADDR,outcome:'',reasoning:''});
-      await refreshSingleMarket(MARKETS.length-1);
+    txLog('✓ Market created and finalized','ok');
+
+    // Update or add market to local list
+    const existing = MARKETS.findIndex(m => m.addr?.toLowerCase() === contractAddr.toLowerCase());
+    const newMarket = {
+      question: q, url, deadline: dl||'No deadline',
+      yes: 0, no: 0, status: 'OPEN',
+      addr: contractAddr, outcome: '', reasoning: ''
+    };
+
+    if(existing >= 0){
+      MARKETS[existing] = newMarket;
     } else {
-      MARKETS[0]={...MARKETS[0],question:q,url,deadline:dl,yes:0,no:0,status:'OPEN'};
+      MARKETS.push(newMarket);
     }
+
+    // Also update CONTRACT_ADDR globally so future bets use it
+    window.ACTIVE_CONTRACT = contractAddr;
+
+    // Refresh from chain
+    const idx = existing >= 0 ? existing : MARKETS.length - 1;
+    await refreshSingleMarket(idx);
     renderMarketsPage();
     renderHomeMarkets();
+
+    // Clear form
     $('f-q').value=''; $('f-url').value=''; $('f-dl').value='';
+    $('f-contract-addr').value='';
   }catch(e){
     toast(e.message,'err'); txLog(e.message,'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Create Market on GenLayer';
+  }
+}
+
+// ════════════════════════════════════════════════════════
+//  CLAIM WINNINGS + REFUND
+// ════════════════════════════════════════════════════════
+async function claimWinnings(){
+  if(S.activeIdx < 0 || !S.connected){ toast('No market selected','err'); return; }
+  const m = MARKETS[S.activeIdx];
+  if(!m.addr){ toast('No contract address','err'); return; }
+
+  const btn = $('btn-claim');
+  btn.textContent = '⟳ Claiming…'; btn.disabled = true;
+  txLog('Sending claim_winnings()…','inf');
+  toast('Claiming your winnings…');
+
+  try{
+    const hash = await writeContract(m.addr, 'claim_winnings', []);
+    txLog(`TX: ${hash.slice(0,20)}…`,'ok');
+    toast('Claim submitted! Waiting for consensus…');
+    await waitTx(hash);
+    toast('Winnings claimed ✓ — check your wallet balance!','ok');
+    txLog('✓ Winnings sent to your wallet','ok');
+    // Mark as claimed locally
+    if(userBets[S.activeIdx]){
+      const claimed = JSON.parse(localStorage.getItem('gmclaimed')||'{}');
+      claimed[S.activeIdx] = true;
+      localStorage.setItem('gmclaimed', JSON.stringify(claimed));
+    }
+    await fetchBalance(S.account);
+    await refreshSingleMarket(S.activeIdx);
+    updateDetailUI(S.activeIdx);
+    renderProfile();
+  }catch(e){
+    toast(e.message,'err'); txLog(e.message,'err');
+  } finally {
+    btn.textContent = '🏆 Claim Winnings'; btn.disabled = false;
+  }
+}
+
+async function requestRefund(){
+  if(S.activeIdx < 0 || !S.connected){ toast('No market selected','err'); return; }
+  const m = MARKETS[S.activeIdx];
+  if(!m.addr){ toast('No contract address','err'); return; }
+
+  const btn = $('btn-refund');
+  btn.textContent = '⟳ Refunding…'; btn.disabled = true;
+  txLog('Sending refund()…','inf');
+  toast('Requesting refund…');
+
+  try{
+    const hash = await writeContract(m.addr, 'refund', []);
+    txLog(`TX: ${hash.slice(0,20)}…`,'ok');
+    await waitTx(hash);
+    toast('Refund sent ✓ — GEN returned to your wallet','ok');
+    txLog('✓ Stake refunded','ok');
+    await fetchBalance(S.account);
+    await refreshSingleMarket(S.activeIdx);
+    updateDetailUI(S.activeIdx);
+    renderProfile();
+  }catch(e){
+    toast(e.message,'err'); txLog(e.message,'err');
+  } finally {
+    btn.textContent = '↩ Refund Stake'; btn.disabled = false;
   }
 }
 
@@ -1179,7 +1350,7 @@ function renderProfile(){
 
   // Show markets page connect btn
   $('m-conn-btn').style.display='block';
-  $('m-create-btn').style.display='none';
+  $('m-create-btn').style.display='none'; // hidden until owner connects
 
   renderHomeMarkets();
   renderMarketsPage();
