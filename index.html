@@ -775,7 +775,7 @@ async function readContract(addr, method, args=[]) {
       to:   addr,
       data: data,
       from: S.account || '0x0000000000000000000000000000000000000000'
-    }, 'latest']);
+    }]);
     // result is hex-encoded — decode to string
     if (result && typeof result === 'string' && result.startsWith('0x') && result.length > 2) {
       try {
