@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8"><!-- v1781282176 -->
+<meta charset="UTF-8"><!-- v1781296767 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets — On-Chain Prediction Markets</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -769,46 +769,50 @@ async function rpcPost(method, params) {
 //  Uses msgpack encoding directly — no external SDK needed
 // ════════════════════════════════════════════════════════
 
-// ── READ via gen_call (RLP encoded) ─────────────────────
+// ── READ via gen_call ────────────────────────────────────
+// Docs show: Type and Data are CAPITALIZED in the request
+// Successful response has result.data = hex-encoded return value
 async function readContract(addr, method, args=[]) {
   const from = S.account || '0x0000000000000000000000000000000000000000';
-  const data = encodeCalldataMsgpack(method, args);
+  const Data = encodeCalldataMsgpack(method, args);
   try {
-    const result = await rpcPost('gen_call', [{to:addr, data, from, type:'read', gas:'0x7A120', value:'0x0'}]);
+    const result = await rpcPost('gen_call', [{
+      to: addr, from,
+      Type: 'read',   // capital T
+      Data: Data,     // capital D
+      gas: '0x7A120',
+      value: '0x0'
+    }]);
 
-    // gen_call wraps everything in VMResult — extract ReturnData from error string
-    const errStr = result?.error || '';
-    if (errStr.includes('ReturnData:[]uint8{')) {
-      // Parse bytes from ReturnData:[]uint8{0x61, 0x62, ...}
-      const match = errStr.match(/ReturnData:\[\]uint8\{([^}]+)\}/);
-      if (match) {
-        const byteVals = match[1].split(',').map(s => parseInt(s.trim(), 16));
-        const decoded = new TextDecoder().decode(new Uint8Array(byteVals));
-        txLog(`gen_call returned: ${decoded.slice(0,60)}`, 'ok');
-        return decoded;
-      }
-    }
-
-    // If no error, try direct result
+    // Successful call: result.data contains hex-encoded return value
     if (result && !result.error) {
-      const raw = typeof result === 'string' ? result
-        : result.output || result.data || result.result || result.return_value;
-      if (raw && typeof raw === 'string' && raw.startsWith('0x') && raw.length > 2) {
-        const bytes = new Uint8Array(raw.slice(2).match(/.{1,2}/g).map(b=>parseInt(b,16)));
-        return new TextDecoder().decode(bytes);
+      const raw = result.data || result.Data;
+      if (raw && typeof raw === 'string') {
+        const hexStr = raw.startsWith('0x') ? raw.slice(2) : raw;
+        if (hexStr.length > 0) {
+          try {
+            const bytes = new Uint8Array(hexStr.match(/.{1,2}/g).map(b=>parseInt(b,16)));
+            const decoded = new TextDecoder().decode(bytes);
+            txLog(`Market data: ${decoded.slice(0,80)}`, 'ok');
+            return decoded;
+          } catch {}
+          return raw;
+        }
       }
-      if (raw) return String(raw);
+      txLog(`gen_call success, result: ${JSON.stringify(result).slice(0,100)}`, 'ok');
+      return JSON.stringify(result);
     }
 
-    // Kind:0x1 = success with return, Kind:0x2 = error/exception
+    // Error — check if it's a UserError from contract
+    const errStr = result?.error || '';
     if (errStr.includes('Kind:0x2')) {
-      txLog(`Contract threw UserError for ${method} — market may be EMPTY`, 'inf');
+      txLog(`Contract UserError for ${method} (market may be EMPTY)`, 'inf');
     } else {
-      txLog(`gen_call: ${errStr.slice(0,100)}`, 'err');
+      txLog(`gen_call error: ${errStr.slice(0,120)}`, 'err');
     }
     return null;
   } catch(e) {
-    txLog(`gen_call: ${e.message}`, 'err');
+    txLog(`gen_call exception: ${e.message}`, 'err');
     return null;
   }
 }
@@ -863,65 +867,94 @@ async function writeContract(addr, method, args=[], valueWei='0x0') {
   return hash;
 }
 
-// ── CALLDATA ENCODER (RLP format for GenLayer gen_call) ──
-// Format: RLP([method_name_bytes, msgpack_args_bytes])
-// This matches what gen_call expects based on error message:
-// "expected input list for [2][]uint8"
+// ── CALLDATA ENCODER (GenLayer custom format) ─────────────
+// Reverse-engineered from genlayer-js source (src/abi/calldata/)
+// Format: RLP([encode({method,args}), encode(leaderOnly=false)])
+// The encode() function uses a custom type-tagged varint system:
+//   lower 3 bits = type tag, upper bits = value (7-bit varint)
+// Types: SPECIAL=0, PINT=1, NINT=2, BYTES=3, STR=4, ARR=5, MAP=6
 
-function rlpEncodeBytes(data) {
+const _T = { SPECIAL:0, PINT:1, NINT:2, BYTES:3, STR:4, ARR:5, MAP:6 };
+const _S = { NULL:0, FALSE:8, TRUE:16, ADDR:24 }; // (val << 3) | SPECIAL
+
+function _writeNum(to, data) {
+  if (data === 0n) { to.push(0); return; }
+  while (data > 0n) {
+    let cur = Number(data & 0x7fn);
+    data >>= 7n;
+    if (data > 0n) cur |= 128;
+    to.push(cur);
+  }
+}
+
+function _encodeWithType(to, val, typ) {
+  _writeNum(to, (BigInt(val) << 3n) | BigInt(typ));
+}
+
+function _encodeImpl(to, data) {
+  if (data === null || data === undefined) { to.push(_S.NULL); return; }
+  if (data === true)  { to.push(_S.TRUE);  return; }
+  if (data === false) { to.push(_S.FALSE); return; }
+  if (typeof data === 'number' || typeof data === 'bigint') {
+    const n = BigInt(data);
+    if (n >= 0n) _encodeWithType(to, n, _T.PINT);
+    else         _encodeWithType(to, -n - 1n, _T.NINT);
+    return;
+  }
+  if (typeof data === 'string') {
+    const b = new TextEncoder().encode(data);
+    _encodeWithType(to, b.length, _T.STR);
+    for (const c of b) to.push(c);
+    return;
+  }
+  if (data instanceof Uint8Array) {
+    _encodeWithType(to, data.length, _T.BYTES);
+    for (const c of data) to.push(c);
+    return;
+  }
+  if (Array.isArray(data)) {
+    _encodeWithType(to, data.length, _T.ARR);
+    for (const item of data) _encodeImpl(to, item);
+    return;
+  }
+  if (typeof data === 'object') {
+    // Sort keys alphabetically (matches genlayer-js compareString)
+    const entries = Object.entries(data).sort(([a],[b]) => a < b ? -1 : a > b ? 1 : 0);
+    _encodeWithType(to, entries.length, _T.MAP);
+    for (const [k, v] of entries) { _encodeImpl(to, k); _encodeImpl(to, v); }
+    return;
+  }
+}
+
+function _glEncode(data) {
+  const arr = [];
+  _encodeImpl(arr, data);
+  return new Uint8Array(arr);
+}
+
+function _rlpBytes(data) {
   if (data.length === 1 && data[0] < 0x80) return data;
   if (data.length <= 55) return new Uint8Array([0x80 + data.length, ...data]);
-  const lenBytes = [];
-  let l = data.length;
-  while (l > 0) { lenBytes.unshift(l & 0xff); l >>= 8; }
-  return new Uint8Array([0xb7 + lenBytes.length, ...lenBytes, ...data]);
+  const lb = []; let l = data.length;
+  while (l > 0) { lb.unshift(l & 0xff); l >>= 8; }
+  return new Uint8Array([0xb7 + lb.length, ...lb, ...data]);
 }
 
-function rlpEncodeList(items) {
-  const encoded = [];
-  for (const item of items) {
-    const e = rlpEncodeBytes(item);
-    for (const b of e) encoded.push(b);
-  }
+function _rlpList(items) {
+  const encoded = []; for (const item of items) for (const b of _rlpBytes(item)) encoded.push(b);
   if (encoded.length <= 55) return new Uint8Array([0xc0 + encoded.length, ...encoded]);
-  const lenBytes = [];
-  let l = encoded.length;
-  while (l > 0) { lenBytes.unshift(l & 0xff); l >>= 8; }
-  return new Uint8Array([0xf7 + lenBytes.length, ...lenBytes, ...encoded]);
+  const lb = []; let l = encoded.length;
+  while (l > 0) { lb.unshift(l & 0xff); l >>= 8; }
+  return new Uint8Array([0xf7 + lb.length, ...lb, ...encoded]);
 }
 
-function _mp(val, buf) {
-  if (val === null || val === undefined) { buf.push(0xc0); }
-  else if (typeof val === 'boolean') { buf.push(val ? 0xc3 : 0xc2); }
-  else if (typeof val === 'number' && Number.isInteger(val) && val >= 0 && val <= 127) { buf.push(val); }
-  else if (typeof val === 'number' && Number.isInteger(val) && val >= -32 && val < 0) { buf.push(0xe0|(val+32)); }
-  else if (typeof val === 'number' && Number.isInteger(val) && val >= 0 && val <= 0xff) { buf.push(0xcc,val); }
-  else if (typeof val === 'number' && Number.isInteger(val) && val >= 0 && val <= 0xffff) { buf.push(0xcd,val>>8,val&0xff); }
-  else if (typeof val === 'number' && Number.isInteger(val) && val >= 0) { buf.push(0xce,(val>>>24)&0xff,(val>>>16)&0xff,(val>>>8)&0xff,val&0xff); }
-  else if (typeof val === 'number') {
-    const b=new ArrayBuffer(9);const dv=new DataView(b);dv.setUint8(0,0xcb);dv.setFloat64(1,val,false);
-    for(let i=0;i<9;i++)buf.push(dv.getUint8(i));
-  } else if (typeof val === 'string') {
-    const bytes=new TextEncoder().encode(val);const n=bytes.length;
-    if(n<=31)buf.push(0xa0|n);else if(n<=0xff)buf.push(0xd9,n);else buf.push(0xda,n>>8,n&0xff);
-    for(const b of bytes)buf.push(b);
-  } else if (Array.isArray(val)) {
-    const n=val.length;
-    if(n<=15)buf.push(0x90|n);else buf.push(0xdc,n>>8,n&0xff);
-    for(const v of val)_mp(v,buf);
-  } else if (typeof val === 'object') {
-    const keys=Object.keys(val);const n=keys.length;
-    if(n<=15)buf.push(0x80|n);else buf.push(0xde,n>>8,n&0xff);
-    for(const k of keys){_mp(k,buf);_mp(val[k],buf);}
-  }
-}
-
-function encodeCalldataMsgpack(method, args) {
-  // RLP([method_bytes, msgpack(args)])
-  const methodBytes = new TextEncoder().encode(method);
-  const argsBuf = []; _mp(args, argsBuf);
-  const argsBytes = new Uint8Array(argsBuf);
-  const rlp = rlpEncodeList([methodBytes, argsBytes]);
+function encodeCalldataMsgpack(method, args, leaderOnly=false) {
+  const obj = {};
+  if (method) obj.method = method;
+  if (args && args.length > 0) obj.args = args;
+  const encoded    = _glEncode(obj);
+  const leaderEnc  = _glEncode(leaderOnly);
+  const rlp        = _rlpList([encoded, leaderEnc]);
   return '0x' + Array.from(rlp).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 
@@ -1521,18 +1554,16 @@ function renderProfile(){
       console.log('3. TX hash:', hash);
 
       const addr2 = CONTRACT_ADDR;
-      const data2 = encodeCalldataMsgpack('get_market_info', []);
-      console.log('RLP encoded:', data2);
-      const r = await rpcPost('gen_call',[{to:addr2,data:data2,from:S.account,type:'read',gas:'0x7A120',value:'0x0'}]).catch(e=>({error:e.message}));
-      console.log('Full gen_call result:', JSON.stringify(r));
-      // Try to parse ReturnData
-      const errStr = r?.error||'';
-      const match = errStr.match(/ReturnData:\[\]uint8\{([^}]+)\}/);
-      if(match){
-        const bytes = match[1].split(',').map(s=>parseInt(s.trim(),16));
-        console.log('ReturnData decoded:', new TextDecoder().decode(new Uint8Array(bytes)));
-      }
-      // Also try get_market_info via readContract
+      const Data = encodeCalldataMsgpack('get_market_info', []);
+      console.log('Encoded:', Data);
+      // Test with capital Type/Data (correct per docs)
+      const r = await rpcPost('gen_call',[{
+        to:addr2, from:S.account,
+        Type:'read', Data,
+        gas:'0x7A120', value:'0x0'
+      }]).catch(e=>({error:e.message}));
+      console.log('gen_call result:', JSON.stringify(r).slice(0,500));
+      // Try readContract
       const mr = await readContract(CONTRACT_ADDR, 'get_market_info', []);
       console.log('readContract result:', mr);
     }
