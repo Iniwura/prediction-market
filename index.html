@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets — On-Chain Prediction Markets</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
-<script src="https://unpkg.com/genlayer-js@latest/dist/index.umd.js" onerror="console.warn('genlayer-js CDN failed')"></script>
 
 <style>
 :root{
@@ -761,96 +760,58 @@ async function rpcPost(method, params) {
 }
 
 // ════════════════════════════════════════════════════════
-//  GENLAYER-JS CLIENT (handles correct calldata encoding)
+//  CALLDATA + READ + WRITE
+//  Uses msgpack encoding directly — no external SDK needed
 // ════════════════════════════════════════════════════════
 
-function getGLClient() {
-  const GL = window.GenLayerJS || window.genlayerJs || window['genlayer-js'];
-  if (!GL) return null;
+// ── READ via gen_call ────────────────────────────────────
+async function readContract(addr, method, args=[]) {
+  const data = encodeCalldataMsgpack(method, args);
   try {
-    const { createClient, bradbury } = GL;
-    return createClient({
-      chain: bradbury || { id: 4221, rpcUrl: RPC },
-      account: { type: 'window', provider: window.ethereum }
-    });
+    const result = await rpcPost('gen_call', [{
+      to:   addr,
+      data: data,
+      from: S.account || '0x0000000000000000000000000000000000000000'
+    }, 'latest']);
+    // result is hex-encoded — decode to string
+    if (result && typeof result === 'string' && result.startsWith('0x') && result.length > 2) {
+      try {
+        const bytes = new Uint8Array(result.slice(2).match(/.{1,2}/g).map(b=>parseInt(b,16)));
+        return new TextDecoder().decode(bytes);
+      } catch {}
+    }
+    return result;
   } catch(e) {
+    txLog(`Read error: ${e.message}`, 'inf');
     return null;
   }
 }
 
-// ── READ ─────────────────────────────────────────────────
-async function readContract(addr, method, args=[]) {
-  // Try SDK first
-  const client = getGLClient();
-  if (client) {
-    try {
-      const result = await client.readContract({
-        address: addr,
-        functionName: method,
-        args: args,
-        stateStatus: 'accepted'
-      });
-      return typeof result === 'object' ? JSON.stringify(result) : String(result);
-    } catch(e) {
-      txLog(`SDK read error: ${e.message} — trying raw RPC`, 'inf');
-    }
-  }
-  // Fallback: raw gen_call with msgpack encoding
-  const data = encodeCalldataMsgpack(method, args);
-  const result = await rpcPost('gen_call', [{
-    to:   addr,
-    data: data,
-    from: S.account || '0x0000000000000000000000000000000000000000'
-  }, 'latest']);
-  if (result && typeof result === 'string' && result.startsWith('0x')) {
-    try {
-      const bytes = new Uint8Array(result.slice(2).match(/.{1,2}/g).map(b=>parseInt(b,16)));
-      return new TextDecoder().decode(bytes);
-    } catch {}
-  }
-  return result;
-}
-
-// ── WRITE ────────────────────────────────────────────────
+// ── WRITE via MetaMask eth_sendTransaction ───────────────
+// GenLayer Bradbury accepts eth_sendTransaction from MetaMask.
+// The node routes it through GenVM using the calldata encoding.
 async function writeContract(addr, method, args=[], valueWei='0x0') {
   if (!window.ethereum || !S.account) throw new Error('Wallet not connected');
 
-  // Try SDK first — it uses correct encoding
-  const client = getGLClient();
-  if (client) {
-    try {
-      txLog(`Sending ${method}() via genlayer-js SDK…`, 'inf');
-      const hash = await client.writeContract({
-        address: addr,
-        functionName: method,
-        args: args,
-        value: valueWei !== '0x0' ? BigInt(valueWei) : 0n
-      });
-      txLog(`TX: ${String(hash).slice(0,20)}…`, 'ok');
-      return String(hash);
-    } catch(e) {
-      txLog(`SDK write error: ${e.message} — trying MetaMask direct`, 'inf');
-    }
-  }
-
-  // Fallback: MetaMask direct with msgpack encoding
-  txLog(`Sending ${method}() via MetaMask direct…`, 'inf');
   const data = encodeCalldataMsgpack(method, args);
+  txLog(`Calling ${method}(${args.map(a=>JSON.stringify(a)).join(',')})`, 'inf');
+
   const hash = await window.ethereum.request({
     method: 'eth_sendTransaction',
     params: [{
       from:  S.account,
       to:    addr,
       data:  data,
-      gas:   '0x493E0',
+      gas:   '0x7A120',   // 500,000 gas — enough for LLM calls
       value: valueWei
     }]
   });
-  txLog(`TX: ${hash.slice(0,20)}…`, 'ok');
+
+  txLog(`TX submitted: ${hash}`, 'ok');
   return hash;
 }
 
-// ── MSGPACK FALLBACK ENCODER ─────────────────────────────
+// ── MSGPACK ENCODER ──────────────────────────────────────
 function _mp(val, buf) {
   if (val === null || val === undefined) { buf.push(0xc0); }
   else if (typeof val === 'boolean') { buf.push(val ? 0xc3 : 0xc2); }
@@ -975,11 +936,17 @@ async function onConnected(addr) {
   const bal=await fetchBalance(addr);
   txLog(`Balance: ${bal} GEN`,'ok');
 
-  // Load all markets from chain
+  // Load live market state from chain
+  txLog('Loading market state from chain…','inf');
   await refreshChainData();
   renderMarketsPage();
   renderHomeMarkets();
   renderProfile();
+
+  // Show market status in log
+  MARKETS.forEach((m,i) => {
+    txLog(`Market ${i+1}: ${m.status} | YES:${m.yes} NO:${m.no} | Pool: ${(parseInt(m.yes_pool||0)/1e18).toFixed(4)} GEN`,'inf');
+  });
 }
 
 function disconnectWallet(){
@@ -1070,9 +1037,12 @@ function marketCard(m, idx) {
         Connect wallet to bet
        </div>`;
 
+  // Status color
+  const statusColor = m.status==='OPEN'?'var(--blue)': m.status==='RESOLVED'?'var(--purple)':'var(--no)';
+
   return `
   <div class="mc" onclick="openDetail(${idx})">
-    <div class="ms"><div class="dot" style="width:5px;height:5px"></div>${m.status}</div>
+    <div class="ms" style="color:${statusColor}"><div class="dot" style="width:5px;height:5px;background:${statusColor};box-shadow:0 0 5px ${statusColor}"></div>${m.status}${m.status!=='OPEN'?' — bets closed':''}</div>
     <div class="mq">${m.question}</div>
     <div class="mbar"><div class="mfill" style="width:${yp}%"></div></div>
     <div class="mmeta">
