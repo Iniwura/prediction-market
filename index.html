@@ -787,33 +787,29 @@ async function readContract(addr, method, args=[]) {
       value: '0x0', chainId: '0x107D'
     };
 
-    let hash;
-    try {
-      const signed = await window.ethereum.request({
-        method: 'eth_signTransaction', params: [txParams]
-      });
-      hash = await rpcPost('eth_sendRawTransaction', [signed]);
-    } catch {
-      hash = await window.ethereum.request({
-        method: 'eth_sendTransaction', params: [txParams]
-      });
-    }
+    // Always use eth_sendTransaction — MetaMask handles signing
+    const hash = await window.ethereum.request({
+      method: 'eth_sendTransaction', params: [txParams]
+    });
 
     if (!hash) return null;
 
-    // Poll for result — reads finalize fast (no consensus needed)
+    // Poll for result
     for (let i = 0; i < 15; i++) {
       await new Promise(r => setTimeout(r, 2000));
       try {
-        const status = await rpcPost('gen_getTransactionStatus', [hash]);
+        // gen_getTransactionStatus expects {hash: "0x..."} object
+        const status = await rpcPost('gen_getTransactionStatus', [{hash}]);
         const st = status?.status || status || '';
         if (st === 'FINALIZED' || st === 'ACCEPTED') {
-          // Get the return value from the transaction receipt
-          const tx = await rpcPost('gen_getTransaction', [hash]);
+          // gen_getTransaction expects {hash: "0x..."} object
+          const tx = await rpcPost('gen_getTransaction', [{hash}]);
           if (tx) {
-            // Extract return value — it may be in different fields
-            const rv = tx.result || tx.return_value || tx.callResult ||
-                       tx.execution_result?.return_value || tx.data;
+            // Return value is in consensus_data or leader_receipt
+            const rv = tx.consensus_data?.leader_receipt?.execution_result?.return_value
+                    || tx.leader_receipt?.execution_result?.return_value
+                    || tx.execution_result?.return_value
+                    || tx.result || tx.return_value || tx.data;
             if (rv && typeof rv === 'string' && rv.startsWith('0x') && rv.length > 2) {
               try {
                 const bytes = new Uint8Array(rv.slice(2).match(/.{1,2}/g).map(b=>parseInt(b,16)));
@@ -825,7 +821,7 @@ async function readContract(addr, method, args=[]) {
           return null;
         }
         if (st === 'CANCELLED' || st === 'REJECTED') return null;
-      } catch {}
+      } catch(e) { /* keep polling */ }
     }
     return null;
   } catch(e) {
@@ -927,7 +923,7 @@ async function waitTx(hash, maxTries=30) {
       // Try gen_getTransactionStatus first
       let st = '';
       try {
-        const r = await rpcPost('gen_getTransactionStatus', [hash]);
+        const r = await rpcPost('gen_getTransactionStatus', [{hash}]);
         st = r?.status || r || '';
       } catch {
         // Fall back to eth_getTransactionReceipt
@@ -1518,33 +1514,20 @@ function renderProfile(){
       const gasPrice = await rpcPost('eth_gasPrice',[]).catch(()=>'0x3B9ACA00');
       console.log('2. Nonce:', nonce, 'GasPrice:', gasPrice);
 
-      let hash;
-      try {
-        const signed = await window.ethereum.request({method:'eth_signTransaction',params:[{
+      hash = await window.ethereum.request({method:'eth_sendTransaction',params:[{
           from:S.account,to:addr,data,gas:'0x7A120',gasPrice,nonce,value:'0x0',chainId:'0x107D'
         }]});
-        console.log('3. Signed tx:', signed);
-        hash = await rpcPost('eth_sendRawTransaction',[signed]);
-      } catch(e) {
-        console.log('3. eth_signTransaction failed:', e.message, '— trying eth_sendTransaction');
-        hash = await window.ethereum.request({method:'eth_sendTransaction',params:[{
-          from:S.account,to:addr,data,gas:'0x7A120',gasPrice,nonce,value:'0x0',chainId:'0x107D'
-        }]});
-      }
-      console.log('4. TX hash:', hash);
+      console.log('3. TX hash:', hash);
 
-      // Poll status
+      // Poll status with correct {hash} object param
       for(let i=0;i<10;i++){
         await new Promise(r=>setTimeout(r,2000));
-        const status = await rpcPost('gen_getTransactionStatus',[hash]).catch(e=>e.message);
-        console.log(`5.${i} Status:`, status);
-        if(status?.status==='FINALIZED'||status==='FINALIZED'||status?.status==='ACCEPTED'){
-          // Try every possible receipt method
-          const methods = ['gen_getTransaction','eth_getTransactionReceipt','eth_getTransactionByHash'];
-          for(const m of methods){
-            const tx = await rpcPost(m,[hash]).catch(e=>({error:e.message}));
-            console.log(`6. ${m}:`, JSON.stringify(tx).slice(0,500));
-          }
+        const status = await rpcPost('gen_getTransactionStatus',[{hash}]).catch(e=>({error:e.message}));
+        console.log(`4.${i} Status:`, JSON.stringify(status));
+        const st = status?.status||'';
+        if(st==='FINALIZED'||st==='ACCEPTED'){
+          const tx = await rpcPost('gen_getTransaction',[{hash}]).catch(e=>({error:e.message}));
+          console.log('5. Full tx:', JSON.stringify(tx).slice(0,1000));
           break;
         }
       }
