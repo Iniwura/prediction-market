@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8"><!-- v1781303096 -->
+<meta charset="UTF-8"><!-- v1781303282 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets — On-Chain Prediction Markets</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -952,8 +952,9 @@ function encodeCalldataMsgpack(method, args, leaderOnly=false) {
   if (method) obj.method = method;
   if (args && args.length > 0) obj.args = args;
   const encoded    = _glEncode(obj);
-  const leaderEnc  = _glEncode(leaderOnly);
-  const rlp        = _rlpList([encoded, leaderEnc]);
+  // leaderOnly is a raw boolean byte (0x00=false, 0x01=true), NOT GL-encoded
+  const leaderByte = new Uint8Array([leaderOnly ? 1 : 0]);
+  const rlp        = _rlpList([encoded, leaderByte]);
   return '0x' + Array.from(rlp).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 
