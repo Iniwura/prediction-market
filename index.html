@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8">
+<meta charset="UTF-8"><!-- v1781281682 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets — On-Chain Prediction Markets</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -769,74 +769,40 @@ async function rpcPost(method, params) {
 //  Uses msgpack encoding directly — no external SDK needed
 // ════════════════════════════════════════════════════════
 
-// ── READ via signed transaction + gen_getTransactionStatus ──
-// gen_call requires full RLP-encoded tx which needs the SDK.
-// Instead we submit a signed read tx and poll for the result.
+// ── READ via gen_call ────────────────────────────────────
 async function readContract(addr, method, args=[]) {
-  if (!window.ethereum || !S.account) return null;
-  const data = encodeCalldataMsgpack(method, args);
-  try {
-    const nonce    = await rpcPost('eth_getTransactionCount', [S.account, 'latest']);
-    let gasPrice   = '0x3B9ACA00';
-    try { gasPrice = await rpcPost('eth_gasPrice', []); } catch {}
+  const from = S.account || '0x0000000000000000000000000000000000000000';
 
-    // Sign a read transaction via MetaMask
-    const txParams = {
-      from: S.account, to: addr, data,
-      gas: '0x7A120', gasPrice, nonce,
-      value: '0x0', chainId: '0x107D'
-    };
+  // Try 3 encoding strategies
+  const encodings = [
+    ['msgpack', encodeCalldataMsgpack(method, args)],
+    ['name', '0x' + Array.from(new TextEncoder().encode(method)).map(b=>b.toString(16).padStart(2,'0')).join('')],
+    ['json',   '0x' + Array.from(new TextEncoder().encode(JSON.stringify({method,args}))).map(b=>b.toString(16).padStart(2,'0')).join('')]
+  ];
 
-    // Always use eth_sendTransaction — MetaMask handles signing
-    const hash = await window.ethereum.request({
-      method: 'eth_sendTransaction', params: [txParams]
-    });
-
-    if (!hash) return null;
-
-    // Poll using eth_getTransactionReceipt (works with MetaMask hashes)
-    for (let i = 0; i < 15; i++) {
-      await new Promise(r => setTimeout(r, 2000));
-      try {
-        const receipt = await rpcPost('eth_getTransactionReceipt', [hash]);
-        if (receipt) {
-          if (receipt.status === '0x0' || receipt.status === 0) return null;
-          // TX mined — try to get GenLayer result
-          try {
-            const tx = await rpcPost('zks_getTransaction', [hash]);
-            if (tx) {
-              // zks_getTransaction return value paths
-              const rv = tx.execute?.output
-                      || tx.output
-                      || tx.result
-                      || tx.return_value
-                      || tx.consensus_data?.leader_receipt?.execution_result?.return_value
-                      || tx.leader_receipt?.execution_result?.return_value
-                      || tx.execution_result?.return_value;
-              console.log('zks_getTransaction full:', JSON.stringify(tx).slice(0,500));
-              if (rv && typeof rv === 'string' && rv.startsWith('0x') && rv.length > 2) {
-                try {
-                  const bytes = new Uint8Array(rv.slice(2).match(/.{1,2}/g).map(b=>parseInt(b,16)));
-                  return new TextDecoder().decode(bytes);
-                } catch {}
-              }
-              if (rv) return String(rv);
-            }
-          } catch {}
-          return null; // mined but couldn't extract result
-        }
-      } catch {}
+  for (const [label, data] of encodings) {
+    try {
+      const result = await rpcPost('gen_call', [{to:addr, data, from, type:'read', gas:'0x7A120', value:'0x0'}]);
+      if (!result || result.error) continue;
+      txLog(`gen_call (${label}) success`, 'ok');
+      const raw = typeof result === 'string' ? result
+        : result.output || result.data || result.result || result.return_value;
+      if (raw && typeof raw === 'string' && raw.startsWith('0x') && raw.length > 2) {
+        try {
+          const bytes = new Uint8Array(raw.slice(2).match(/.{1,2}/g).map(b=>parseInt(b,16)));
+          return new TextDecoder().decode(bytes);
+        } catch {}
+      }
+      if (raw) return String(raw);
+      return JSON.stringify(result);
+    } catch(e) {
+      txLog(`gen_call (${label}): ${e.message}`, 'inf');
     }
-    return null;
-  } catch(e) {
-    txLog(`Read error: ${e.message}`, 'err');
-    return null;
   }
+  return null;
 }
 
-// ── WRITE via eth_sendRawTransaction ─────────────────────
-// GenLayer requires raw signed transactions for contract calls.
-// We sign with MetaMask then send raw via RPC.
+
 async function writeContract(addr, method, args=[], valueWei='0x0') {
   if (!window.ethereum || !S.account) throw new Error('Wallet not connected');
 
@@ -1513,31 +1479,17 @@ function renderProfile(){
         }]});
       console.log('3. TX hash:', hash);
 
-      // Wait for receipt first
-      let receipt = null;
-      for(let i=0;i<10;i++){
-        await new Promise(r=>setTimeout(r,2000));
-        receipt = await rpcPost('eth_getTransactionReceipt',[hash]).catch(()=>null);
-        console.log(`4.${i} Receipt status:`, receipt?.status);
-        if(receipt?.status) break;
-      }
-      if(!receipt){ console.log('No receipt'); return; }
-
-      // Try every possible method to get GenLayer tx details
-      const methods = [
-        'zks_getTransactionDetails',
-        'zks_getTransaction',
-        'gen_getTransaction',
-        'gen_getTransactionReceipt',
-        'eth_getTransactionByHash',
-        'gen_getContractSchema'
-      ];
-      for(const m of methods){
-        const params = m === 'gen_getContractSchema'
-          ? ['0x64270c41db5A934834CB00EEEDce6644C224B12c']
-          : [hash];
-        const r = await rpcPost(m, params).catch(e=>({error:e.message}));
-        console.log(`${m}:`, JSON.stringify(r).slice(0,300));
+      // Test gen_call with 3 different encodings
+      const addr2 = CONTRACT_ADDR;
+      const from2 = S.account;
+      const encodings = {
+        msgpack: encodeCalldataMsgpack('get_market_info', []),
+        name: '0x' + Array.from(new TextEncoder().encode('get_market_info')).map(b=>b.toString(16).padStart(2,'0')).join(''),
+        json: '0x' + Array.from(new TextEncoder().encode(JSON.stringify({method:'get_market_info',args:[]}))).map(b=>b.toString(16).padStart(2,'0')).join('')
+      };
+      for(const [label, data] of Object.entries(encodings)){
+        const r = await rpcPost('gen_call',[{to:addr2,data,from:from2,type:'read',gas:'0x7A120',value:'0x0'}]).catch(e=>({error:e.message}));
+        console.log(`gen_call (${label}):`, JSON.stringify(r).slice(0,300));
       }
     }
   };
