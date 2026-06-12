@@ -1513,16 +1513,31 @@ function renderProfile(){
         }]});
       console.log('3. TX hash:', hash);
 
+      // Wait for receipt first
+      let receipt = null;
       for(let i=0;i<10;i++){
         await new Promise(r=>setTimeout(r,2000));
-        const receipt = await rpcPost('eth_getTransactionReceipt',[hash]).catch(e=>({error:e.message}));
-        console.log(`4.${i} Receipt:`, JSON.stringify(receipt).slice(0,200));
-        if(receipt && !receipt.error && receipt.status){
-          // Try gen_getTransaction for full details
-          const tx = await rpcPost('zks_getTransaction',[hash]).catch(e=>({error:e.message}));
-          console.log('5. gen_getTransaction:', JSON.stringify(tx).slice(0,1000));
-          break;
-        }
+        receipt = await rpcPost('eth_getTransactionReceipt',[hash]).catch(()=>null);
+        console.log(`4.${i} Receipt status:`, receipt?.status);
+        if(receipt?.status) break;
+      }
+      if(!receipt){ console.log('No receipt'); return; }
+
+      // Try every possible method to get GenLayer tx details
+      const methods = [
+        'zks_getTransactionDetails',
+        'zks_getTransaction',
+        'gen_getTransaction',
+        'gen_getTransactionReceipt',
+        'eth_getTransactionByHash',
+        'gen_getContractSchema'
+      ];
+      for(const m of methods){
+        const params = m === 'gen_getContractSchema'
+          ? ['0x64270c41db5A934834CB00EEEDce6644C224B12c']
+          : [hash];
+        const r = await rpcPost(m, params).catch(e=>({error:e.message}));
+        console.log(`${m}:`, JSON.stringify(r).slice(0,300));
       }
     }
   };
