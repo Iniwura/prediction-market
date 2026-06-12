@@ -770,25 +770,52 @@ async function rpcPost(method, params) {
 // ════════════════════════════════════════════════════════
 
 // ── READ via gen_call ────────────────────────────────────
+// gen_call for Intelligent Contracts uses msgpack-encoded calldata
+// The result comes back as a structured JSON object with execution results
 async function readContract(addr, method, args=[]) {
   const data = encodeCalldataMsgpack(method, args);
   try {
     const result = await rpcPost('gen_call', [{
-      to:   addr,
-      data: data,
-      from: S.account || '0x0000000000000000000000000000000000000000',
-      type: 'read'
+      to:    addr,
+      data:  data,
+      from:  S.account || '0x0000000000000000000000000000000000000000',
+      type:  'read',
+      gas:   '0x7A120',
+      value: '0x0'
     }]);
-    // result is hex-encoded — decode to string
-    if (result && typeof result === 'string' && result.startsWith('0x') && result.length > 2) {
+
+    // gen_call returns a structured result object
+    // The contract return value is in result.data or as hex
+    if (!result) return null;
+
+    // If result is an object with execution data
+    if (typeof result === 'object') {
+      // Try to find the return value in various places
+      const raw = result.data || result.result || result.output || result.return_value;
+      if (raw && typeof raw === 'string' && raw.startsWith('0x') && raw.length > 2) {
+        try {
+          const bytes = new Uint8Array(raw.slice(2).match(/.{1,2}/g).map(b=>parseInt(b,16)));
+          return new TextDecoder().decode(bytes);
+        } catch {}
+      }
+      // Sometimes the result is directly the string value
+      if (result.callResult || result.call_result) {
+        return String(result.callResult || result.call_result);
+      }
+      return JSON.stringify(result);
+    }
+
+    // If result is a hex string
+    if (typeof result === 'string' && result.startsWith('0x') && result.length > 2) {
       try {
         const bytes = new Uint8Array(result.slice(2).match(/.{1,2}/g).map(b=>parseInt(b,16)));
         return new TextDecoder().decode(bytes);
       } catch {}
     }
-    return result;
+
+    return String(result);
   } catch(e) {
-    txLog(`Read error: ${e.message}`, 'inf');
+    txLog(`Read error: ${e.message}`, 'err');
     return null;
   }
 }
@@ -1459,6 +1486,34 @@ function renderProfile(){
 
   txLog('Gen Markets loaded — Bradbury Testnet','inf');
   txLog('Fetching market state from chain…','inf');
+
+  // Expose debug helpers on window for console testing
+  window._GL = {
+    CONTRACT_ADDR,
+    RPC,
+    encodeCalldataMsgpack,
+    rpcPost,
+    readContract,
+    // Quick test function — run window._GL.test() in console
+    test: async () => {
+      const addr = CONTRACT_ADDR;
+      const data = encodeCalldataMsgpack('get_market_info', []);
+      console.log('Encoded calldata:', data);
+      console.log('Sending gen_call to:', addr);
+      try {
+        const r = await rpcPost('gen_call', [{
+          to: addr, data, from: '0x0000000000000000000000000000000000000000',
+          type: 'read', gas: '0x7A120', value: '0x0'
+        }]);
+        console.log('gen_call result:', r);
+        return r;
+      } catch(e) {
+        console.error('gen_call error:', e);
+        return e;
+      }
+    }
+  };
+  console.log('Debug: run window._GL.test() to test chain read');
 })();
 </script>
 </body>
