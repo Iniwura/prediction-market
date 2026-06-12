@@ -1340,7 +1340,7 @@ function openCreateMarket(){
   if(!S.connected){toast('Connect wallet first','err');return;}
   // Pre-fill with known contract address if available
   const addrField = $('f-contract-addr');
-  if(addrField && CONTRACT_ADDR && CONTRACT_ADDR !== 'PASTE_YOUR_NEW_CONTRACT_ADDRESS_HERE'){
+  if(addrField && CONTRACT_ADDR && CONTRACT_ADDR !== '0x1d2A5484b03849A55817d42799Dc60caa3E6ab09'){
     addrField.value = window.ACTIVE_CONTRACT || CONTRACT_ADDR;
   }
   openModal('m-create');
@@ -1352,7 +1352,7 @@ async function submitCreateMarket(){
   const url = ($('f-url').value||'').trim();
   const dl  = ($('f-dl').value||'').trim();
 
-  if(!contractAddr||contractAddr==='PASTE_YOUR_NEW_CONTRACT_ADDRESS_HERE'){
+  if(!contractAddr||contractAddr==='0x1d2A5484b03849A55817d42799Dc60caa3E6ab09'){
     toast('Enter your deployed contract address','err'); return;
   }
   if(!q||!url){ toast('Question and Evidence URL required','err'); return; }
