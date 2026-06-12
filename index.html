@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8"><!-- v1781302588 -->
+<meta charset="UTF-8"><!-- v1781302863 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets — On-Chain Prediction Markets</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -774,45 +774,25 @@ async function rpcPost(method, params) {
 // Successful response has result.data = hex-encoded return value
 async function readContract(addr, method, args=[]) {
   const from = S.account || '0x0000000000000000000000000000000000000000';
-  const Data = encodeCalldataMsgpack(method, args);
+  const data = encodeForRead(method, args);  // raw GL encoding, no RLP
   try {
-    const result = await rpcPost('gen_call', [{
-      to: addr, from,
-      Type: 'read',   // capital T
-      Data: Data,     // capital D
-      gas: '0x7A120',
-      value: '0x0'
-    }]);
-
-    // Successful call: result.data contains hex-encoded return value
-    if (result && !result.error) {
-      const raw = result.data || result.Data;
-      if (raw && typeof raw === 'string') {
-        const hexStr = raw.startsWith('0x') ? raw.slice(2) : raw;
-        if (hexStr.length > 0) {
-          try {
-            const bytes = new Uint8Array(hexStr.match(/.{1,2}/g).map(b=>parseInt(b,16)));
-            const decoded = new TextDecoder().decode(bytes);
-            txLog(`Market data: ${decoded.slice(0,80)}`, 'ok');
-            return decoded;
-          } catch {}
-          return raw;
-        }
-      }
-      txLog(`gen_call success, result: ${JSON.stringify(result).slice(0,100)}`, 'ok');
-      return JSON.stringify(result);
+    const result = await rpcPost('gen_call', [{to:addr, data, from, type:'read', gas:'0x7A120', value:'0x0'}]);
+    if (!result || result.error) {
+      txLog(`gen_call exception: ${JSON.stringify(result?.error||result).slice(0,80)}`,'err');
+      return null;
     }
-
-    // Error — check if it's a UserError from contract
-    const errStr = result?.error || '';
-    if (errStr.includes('Kind:0x2')) {
-      txLog(`Contract UserError for ${method} (market may be EMPTY)`, 'inf');
-    } else {
-      txLog(`gen_call error: ${errStr.slice(0,120)}`, 'err');
+    txLog(`gen_call OK: ${JSON.stringify(result).slice(0,60)}`,'ok');
+    const raw = typeof result==='string'?result:result.output||result.data||result.result||result.return_value;
+    if (raw && typeof raw==='string' && raw.startsWith('0x') && raw.length>2) {
+      try {
+        const bytes=new Uint8Array(raw.slice(2).match(/.{1,2}/g).map(b=>parseInt(b,16)));
+        return new TextDecoder().decode(bytes);
+      } catch {}
     }
-    return null;
+    if (raw) return String(raw);
+    return JSON.stringify(result);
   } catch(e) {
-    txLog(`gen_call exception: ${e.message}`, 'err');
+    txLog(`gen_call exception: ${e.message.slice(0,120)}`,'err');
     return null;
   }
 }
@@ -948,6 +928,16 @@ function _rlpList(items) {
   return new Uint8Array([0xf7 + lb.length, ...lb, ...encoded]);
 }
 
+// For gen_call reads — raw GL encoding, no RLP wrapper
+function encodeForRead(method, args) {
+  const obj = {};
+  if (method) obj.method = method;
+  if (args && args.length > 0) obj.args = args;
+  const encoded = _glEncode(obj);
+  return '0x' + Array.from(encoded).map(b=>b.toString(16).padStart(2,'0')).join('');
+}
+
+// For writeContract — RLP([encode(obj), encode(leaderOnly)])
 function encodeCalldataMsgpack(method, args, leaderOnly=false) {
   const obj = {};
   if (method) obj.method = method;
