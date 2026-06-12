@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8"><!-- v1781281682 -->
+<meta charset="UTF-8"><!-- v1781282025 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets — On-Chain Prediction Markets</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -769,37 +769,31 @@ async function rpcPost(method, params) {
 //  Uses msgpack encoding directly — no external SDK needed
 // ════════════════════════════════════════════════════════
 
-// ── READ via gen_call ────────────────────────────────────
+// ── READ via gen_call (RLP encoded) ─────────────────────
 async function readContract(addr, method, args=[]) {
   const from = S.account || '0x0000000000000000000000000000000000000000';
-
-  // Try 3 encoding strategies
-  const encodings = [
-    ['msgpack', encodeCalldataMsgpack(method, args)],
-    ['name', '0x' + Array.from(new TextEncoder().encode(method)).map(b=>b.toString(16).padStart(2,'0')).join('')],
-    ['json',   '0x' + Array.from(new TextEncoder().encode(JSON.stringify({method,args}))).map(b=>b.toString(16).padStart(2,'0')).join('')]
-  ];
-
-  for (const [label, data] of encodings) {
-    try {
-      const result = await rpcPost('gen_call', [{to:addr, data, from, type:'read', gas:'0x7A120', value:'0x0'}]);
-      if (!result || result.error) continue;
-      txLog(`gen_call (${label}) success`, 'ok');
-      const raw = typeof result === 'string' ? result
-        : result.output || result.data || result.result || result.return_value;
-      if (raw && typeof raw === 'string' && raw.startsWith('0x') && raw.length > 2) {
-        try {
-          const bytes = new Uint8Array(raw.slice(2).match(/.{1,2}/g).map(b=>parseInt(b,16)));
-          return new TextDecoder().decode(bytes);
-        } catch {}
-      }
-      if (raw) return String(raw);
-      return JSON.stringify(result);
-    } catch(e) {
-      txLog(`gen_call (${label}): ${e.message}`, 'inf');
+  const data = encodeCalldataMsgpack(method, args); // now RLP encoded
+  try {
+    const result = await rpcPost('gen_call', [{to:addr, data, from, type:'read', gas:'0x7A120', value:'0x0'}]);
+    if (!result || result.error) {
+      txLog(`gen_call error: ${JSON.stringify(result?.error||result)}`, 'err');
+      return null;
     }
+    txLog(`gen_call OK: ${JSON.stringify(result).slice(0,80)}`, 'ok');
+    const raw = typeof result === 'string' ? result
+      : result.output || result.data || result.result || result.return_value;
+    if (raw && typeof raw === 'string' && raw.startsWith('0x') && raw.length > 2) {
+      try {
+        const bytes = new Uint8Array(raw.slice(2).match(/.{1,2}/g).map(b=>parseInt(b,16)));
+        return new TextDecoder().decode(bytes);
+      } catch {}
+    }
+    if (raw) return String(raw);
+    return JSON.stringify(result);
+  } catch(e) {
+    txLog(`gen_call: ${e.message}`, 'err');
+    return null;
   }
-  return null;
 }
 
 
@@ -852,7 +846,33 @@ async function writeContract(addr, method, args=[], valueWei='0x0') {
   return hash;
 }
 
-// ── MSGPACK ENCODER ──────────────────────────────────────
+// ── CALLDATA ENCODER (RLP format for GenLayer gen_call) ──
+// Format: RLP([method_name_bytes, msgpack_args_bytes])
+// This matches what gen_call expects based on error message:
+// "expected input list for [2][]uint8"
+
+function rlpEncodeBytes(data) {
+  if (data.length === 1 && data[0] < 0x80) return data;
+  if (data.length <= 55) return new Uint8Array([0x80 + data.length, ...data]);
+  const lenBytes = [];
+  let l = data.length;
+  while (l > 0) { lenBytes.unshift(l & 0xff); l >>= 8; }
+  return new Uint8Array([0xb7 + lenBytes.length, ...lenBytes, ...data]);
+}
+
+function rlpEncodeList(items) {
+  const encoded = [];
+  for (const item of items) {
+    const e = rlpEncodeBytes(item);
+    for (const b of e) encoded.push(b);
+  }
+  if (encoded.length <= 55) return new Uint8Array([0xc0 + encoded.length, ...encoded]);
+  const lenBytes = [];
+  let l = encoded.length;
+  while (l > 0) { lenBytes.unshift(l & 0xff); l >>= 8; }
+  return new Uint8Array([0xf7 + lenBytes.length, ...lenBytes, ...encoded]);
+}
+
 function _mp(val, buf) {
   if (val === null || val === undefined) { buf.push(0xc0); }
   else if (typeof val === 'boolean') { buf.push(val ? 0xc3 : 0xc2); }
@@ -880,8 +900,12 @@ function _mp(val, buf) {
 }
 
 function encodeCalldataMsgpack(method, args) {
-  const buf=[];_mp([method,args],buf);
-  return '0x'+buf.map(b=>b.toString(16).padStart(2,'0')).join('');
+  // RLP([method_bytes, msgpack(args)])
+  const methodBytes = new TextEncoder().encode(method);
+  const argsBuf = []; _mp(args, argsBuf);
+  const argsBytes = new Uint8Array(argsBuf);
+  const rlp = rlpEncodeList([methodBytes, argsBytes]);
+  return '0x' + Array.from(rlp).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 
 // ── POLL FOR FINALIZATION ────────────────────────────────
@@ -1479,18 +1503,11 @@ function renderProfile(){
         }]});
       console.log('3. TX hash:', hash);
 
-      // Test gen_call with 3 different encodings
       const addr2 = CONTRACT_ADDR;
-      const from2 = S.account;
-      const encodings = {
-        msgpack: encodeCalldataMsgpack('get_market_info', []),
-        name: '0x' + Array.from(new TextEncoder().encode('get_market_info')).map(b=>b.toString(16).padStart(2,'0')).join(''),
-        json: '0x' + Array.from(new TextEncoder().encode(JSON.stringify({method:'get_market_info',args:[]}))).map(b=>b.toString(16).padStart(2,'0')).join('')
-      };
-      for(const [label, data] of Object.entries(encodings)){
-        const r = await rpcPost('gen_call',[{to:addr2,data,from:from2,type:'read',gas:'0x7A120',value:'0x0'}]).catch(e=>({error:e.message}));
-        console.log(`gen_call (${label}):`, JSON.stringify(r).slice(0,300));
-      }
+      const data2 = encodeCalldataMsgpack('get_market_info', []);
+      console.log('RLP encoded:', data2);
+      const r = await rpcPost('gen_call',[{to:addr2,data:data2,from:S.account,type:'read',gas:'0x7A120',value:'0x0'}]).catch(e=>({error:e.message}));
+      console.log('gen_call result:', JSON.stringify(r).slice(0,500));
     }
   };
   console.log('Debug: run window._GL.test() to test chain read');
