@@ -774,7 +774,8 @@ async function readContract(addr, method, args=[]) {
     const result = await rpcPost('gen_call', [{
       to:   addr,
       data: data,
-      from: S.account || '0x0000000000000000000000000000000000000000'
+      from: S.account || '0x0000000000000000000000000000000000000000',
+      type: 'read'
     }]);
     // result is hex-encoded — decode to string
     if (result && typeof result === 'string' && result.startsWith('0x') && result.length > 2) {
@@ -790,26 +791,54 @@ async function readContract(addr, method, args=[]) {
   }
 }
 
-// ── WRITE via MetaMask eth_sendTransaction ───────────────
-// GenLayer Bradbury accepts eth_sendTransaction from MetaMask.
-// The node routes it through GenVM using the calldata encoding.
+// ── WRITE via eth_sendRawTransaction ─────────────────────
+// GenLayer requires raw signed transactions for contract calls.
+// We sign with MetaMask then send raw via RPC.
 async function writeContract(addr, method, args=[], valueWei='0x0') {
   if (!window.ethereum || !S.account) throw new Error('Wallet not connected');
 
   const data = encodeCalldataMsgpack(method, args);
   txLog(`Calling ${method}(${args.map(a=>JSON.stringify(a)).join(',')})`, 'inf');
 
-  const hash = await window.ethereum.request({
-    method: 'eth_sendTransaction',
-    params: [{
-      from:  S.account,
-      to:    addr,
-      data:  data,
-      gas:   '0x7A120',   // 500,000 gas — enough for LLM calls
-      value: valueWei
-    }]
-  });
+  // Get nonce
+  const nonce = await rpcPost('eth_getTransactionCount', [S.account, 'latest']);
 
+  // Get gas price
+  let gasPrice = '0x3B9ACA00'; // 1 gwei default
+  try { gasPrice = await rpcPost('eth_gasPrice', []); } catch {}
+
+  const txParams = {
+    from:     S.account,
+    to:       addr,
+    data:     data,
+    gas:      '0x7A120',   // 500,000 gas
+    gasPrice: gasPrice,
+    nonce:    nonce,
+    value:    valueWei,
+    chainId:  '0x107D'     // 4221 Bradbury
+  };
+
+  // Step 1: Sign the transaction with MetaMask
+  let signedTx;
+  try {
+    signedTx = await window.ethereum.request({
+      method: 'eth_signTransaction',
+      params: [txParams]
+    });
+  } catch(signErr) {
+    // Fallback: some MetaMask versions use eth_sendTransaction
+    // which internally signs and sends — try that
+    txLog('eth_signTransaction failed, trying eth_sendTransaction fallback…', 'inf');
+    const hash = await window.ethereum.request({
+      method: 'eth_sendTransaction',
+      params: [txParams]
+    });
+    txLog(`TX submitted: ${hash}`, 'ok');
+    return hash;
+  }
+
+  // Step 2: Send raw signed transaction
+  const hash = await rpcPost('eth_sendRawTransaction', [signedTx]);
   txLog(`TX submitted: ${hash}`, 'ok');
   return hash;
 }
