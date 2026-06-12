@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8"><!-- v1781303282 -->
+<meta charset="UTF-8"><!-- v1781303537 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets — On-Chain Prediction Markets</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -910,7 +910,14 @@ function _encodeImpl(to, data) {
     // Sort keys alphabetically (matches genlayer-js compareString)
     const entries = Object.entries(data).sort(([a],[b]) => a < b ? -1 : a > b ? 1 : 0);
     _encodeWithType(to, entries.length, _T.MAP);
-    for (const [k, v] of entries) { _encodeImpl(to, k); _encodeImpl(to, v); }
+    for (const [k, v] of entries) {
+      // Map keys: raw length + bytes (NO type tag) — per genlayer-js encodeMap source
+      const kb = new TextEncoder().encode(k);
+      _writeNum(to, BigInt(kb.length));
+      for (const b of kb) to.push(b);
+      // Map values: normal type-tagged encoding
+      _encodeImpl(to, v);
+    }
     return;
   }
 }
