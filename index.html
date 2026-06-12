@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8"><!-- v1781296767 -->
+<meta charset="UTF-8"><!-- v1781302588 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets — On-Chain Prediction Markets</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -316,7 +316,7 @@ footer a:hover{color:var(--purple);}
   <div class="msub">Only the contract owner (deployer wallet) can create markets.</div>
   <div class="ff">
     <label class="fl">Contract Address</label>
-    <input class="fi" id="f-contract-addr" placeholder="0x… your deployed Bradbury contract" value="0x64270c41db5A934834CB00EEEDce6644C224B12c">
+    <input class="fi" id="f-contract-addr" placeholder="0x… your deployed Bradbury contract" value="0x1d2A5484b03849A55817d42799Dc60caa3E6ab09">
   </div>
   <div class="ff">
     <label class="fl">Question</label>
@@ -556,8 +556,8 @@ footer a:hover{color:var(--purple);}
 // ════════════════════════════════════════════════════════
 //  CONFIG — update CONTRACT_ADDR with your Bradbury address
 // ════════════════════════════════════════════════════════
-const CONTRACT_ADDR = '0x64270c41db5A934834CB00EEEDce6644C224B12c';
-const OWNER_CHECK   = '0xd0dd02322af812fc0dbddc69f9a055fbbe2c6673'; // lowercase for comparison
+const CONTRACT_ADDR = '0x1d2A5484b03849A55817d42799Dc60caa3E6ab09';
+const OWNER_CHECK   = '0xd0dd02322af812fc0dbddc69f9a055fbbe2c6673';
 const OWNER_ADDR    = '0xd0dd02322AF812fC0dbDdC69f9a055FBBe2C6673';
 const RPC           = 'https://rpc-bradbury.genlayer.com';
 const CHAIN_ID      = '0x107D'; // 4221
@@ -1120,14 +1120,14 @@ async function refreshSingleMarket(idx) {
 }
 
 function parseLiveMarket(idx, raw) {
-  if(!raw){ txLog(`Market ${idx+1}: no data returned from chain`,'err'); return; }
-
-  txLog(`Market ${idx+1} raw: ${String(raw).slice(0,120)}`,'inf');
+  if (!raw) { txLog(`Market ${idx+1}: no data from chain`, 'err'); return; }
+  txLog(`Market ${idx+1} raw: ${String(raw).slice(0, 120)}`, 'inf');
 
   const lines = String(raw).split('\n');
+  // Format is "Key:Value" (no spaces around colon)
   const get = k => {
-    const l = lines.find(l => l.startsWith(k));
-    return l ? l.split(':').slice(1).join(':').trim() : '';
+    const l = lines.find(l => l.startsWith(k + ':'));
+    return l ? l.slice(k.length + 1).trim() : '';
   };
 
   const status   = get('Status')   || 'EMPTY';
@@ -1135,19 +1135,25 @@ function parseLiveMarket(idx, raw) {
   const deadline = get('Deadline') || '—';
   const outcome  = get('Outcome')  || '';
   const reasoning= get('Reasoning')|| '';
+  const owner    = get('Owner')    || '';
 
-  // Parse YES/NO counts from "X (Y%) — Z GEN staked" format
-  const yesLine = get('YES bets');
-  const noLine  = get('NO bets');
-  const yes = parseInt(yesLine) || 0;
-  const no  = parseInt(noLine)  || 0;
+  // "YES bets:3 (75.0%) 1.5 GEN" → parse first number
+  const yes = parseInt(get('YES bets')) || 0;
+  const no  = parseInt(get('NO bets'))  || 0;
+
+  // Pool sizes from "X.XXXX GEN" strings
+  const yesPoolStr = get('YES bets').match(/[\d.]+(?= GEN)/)?.[0] || '0';
+  const noPoolStr  = get('NO bets').match(/[\d.]+(?= GEN)/)?.[0]  || '0';
 
   MARKETS[idx] = {
     ...MARKETS[idx],
-    question, status, deadline, outcome, reasoning, yes, no
+    question, status, deadline, outcome, reasoning, owner,
+    yes, no,
+    yes_pool: parseFloat(yesPoolStr),
+    no_pool:  parseFloat(noPoolStr),
   };
 
-  txLog(`Market ${idx+1}: [${status}] "${question.slice(0,50)}" YES:${yes} NO:${no}`,'ok');
+  txLog(`Market ${idx+1}: [${status}] "${question.slice(0,50)}" YES:${yes} NO:${no}`, 'ok');
 }
 
 // ════════════════════════════════════════════════════════
