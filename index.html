@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8"><!-- v1781389260 -->
+<meta charset="UTF-8"><!-- v1781389487 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets · AI Prediction Markets on GenLayer</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -1470,39 +1470,44 @@ function setStake(val) {
 
 async function confirmBet() {
   closeModal('m-bet');
-  const idx=S.activeIdx;
-  const m=MARKETS[idx];
-  const addr=m.addr||CONTRACT_ADDR;
-  const side=S.betSide;
-  const amount=parseInt($('f-stake')?.value)||S.betAmount||100;
+  const idx    = S.activeIdx;
+  const m      = MARKETS[idx];
+  const addr   = m.addr || CONTRACT_ADDR;
+  const side   = S.betSide;
+  const amount = parseInt($('f-stake')?.value) || S.betAmount || 100;
 
-  txLog(`Placing ${side} bet (${amount} GEN) on market ${idx+1}…`,'inf');
-  toast(`Submitting ${side} bet…`);
+  // Pre-flight check: do they have enough points?
+  if((S.points||0) < amount){
+    toast(`Not enough points. Balance: ${S.points||0} pts`, 'err');
+    txLog(`Bet blocked — balance ${S.points||0} < ${amount} pts. Claim starter points in Profile first.`, 'err');
+    return;
+  }
+
+  S.betAmount = amount;
+  txLog(`Placing ${side} prediction (${amount} pts) on market ${idx+1}…`, 'inf');
+  toast(`Submitting ${side} prediction…`);
 
   try {
-    const hash = await writeContract(addr, 'place_bet', [idx, side, S.betAmount]);
-    toast('Bet submitted! Waiting for consensus…');
+    const hash = await writeContract(addr, 'place_bet', [idx, side, amount]);
+    toast('Prediction submitted! Waiting for consensus…');
     txLog(`TX: ${hash.slice(0,20)}…`, 'ok');
 
     const result = await waitTx(hash);
 
-    // Record bet regardless of timeout — tx was signed and submitted
     userBets[idx] = side;
     localStorage.setItem('gmbets', JSON.stringify(userBets));
     if(S.account) localStorage.setItem('gmbets_'+S.account.toLowerCase(), JSON.stringify(userBets));
 
     if (result.status === 'FINALIZED' || result.status === 'ACCEPTED') {
-      toast(`${side} bet confirmed on-chain ✓`, 'ok');
-      txLog(`✓ ${side} bet finalized`, 'ok');
-      await refreshSingleMarket(idx);
+      toast(`${side} prediction confirmed on-chain ✓`, 'ok');
+      txLog(`✓ ${side} prediction finalized`, 'ok');
     } else {
-      // Still pending — record locally, will sync on next load
-      toast(`${side} bet submitted — pending finalization`, 'ok');
-      txLog(`${side} bet pending finalization (TX: ${hash.slice(0,12)}…)`, 'inf');
-      // Optimistically update local counts
-      MARKETS[idx][side.toLowerCase()==='yes'?'yes':'no']++;
+      toast(`${side} prediction submitted — pending finalization`, 'ok');
+      txLog(`${side} prediction pending (TX: ${hash.slice(0,12)}…)`, 'inf');
     }
 
+    await refreshSingleMarket(idx);
+    await refreshPointsBalance();
     renderMarketsPage(); renderProfile();
     if (S.activeIdx === idx) updateDetailUI(idx);
   } catch(e) {
