@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8"><!-- v1781303778 -->
+<meta charset="UTF-8"><!-- v1781332403 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets — On-Chain Prediction Markets</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -824,52 +824,72 @@ async function readContract(addr, method, args=[]) {
 }
 
 
+// ── ABI encoding helpers for addTransaction call ────────
+function abiEncodeUint256(val) {
+  const hex = BigInt(val).toString(16).padStart(64, '0');
+  return hex;
+}
+function abiEncodeAddress(addr) {
+  return addr.toLowerCase().replace('0x','').padStart(64,'0');
+}
+function abiEncodeBytes(hexData) {
+  // bytes: offset, length, data padded to 32 bytes
+  const raw = hexData.startsWith('0x') ? hexData.slice(2) : hexData;
+  const len = raw.length / 2;
+  const lenHex = len.toString(16).padStart(64,'0');
+  const padded = raw.padEnd(Math.ceil(raw.length/64)*64, '0');
+  return lenHex + padded;
+}
+
+// addTransaction(sender, recipient, numValidators, maxRotations, calldata, validUntil)
+// selector: keccak256("addTransaction(address,address,uint256,uint256,bytes,uint256)")[:4]
+// = 0xf732d725 (precomputed)
+function encodeAddTransaction(sender, recipient, calldata, value) {
+  const numValidators = 5;
+  const maxRotations  = 3;
+  const validUntil    = Math.floor(Date.now()/1000) + 3600;
+  const calldataHex   = calldata.startsWith('0x') ? calldata.slice(2) : calldata;
+  const calldataLen   = calldataHex.length / 2;
+
+  // ABI encoding for (address,address,uint256,uint256,bytes,uint256)
+  // Static slot for bytes arg = offset to dynamic data = 6*32 = 192 = 0xc0
+  const SELECTOR   = 'f732d725';
+  const bytesOffset = (6 * 32).toString(16).padStart(64,'0');
+
+  const encoded = SELECTOR
+    + abiEncodeAddress(sender)
+    + abiEncodeAddress(recipient)
+    + abiEncodeUint256(numValidators)
+    + abiEncodeUint256(maxRotations)
+    + bytesOffset
+    + abiEncodeUint256(validUntil)
+    + abiEncodeBytes(calldataHex);
+
+  return '0x' + encoded;
+}
+
+const CONSENSUS = '0x0112Bf6e83497965A5fdD6Dad1E447a6E004271D';
+
 async function writeContract(addr, method, args=[], valueWei='0x0') {
   if (!window.ethereum || !S.account) throw new Error('Wallet not connected');
 
-  const data = encodeCalldataMsgpack(method, args);
-  txLog(`Calling ${method}(${args.map(a=>JSON.stringify(a)).join(',')})`, 'inf');
+  const calldata = encodeCalldataMsgpack(method, args);
+  txLog(`Sending ${method}(${args.map(a=>JSON.stringify(a)).join(',')}) to ${addr.slice(0,10)}…`, 'inf');
 
-  // Get nonce
-  const nonce = await rpcPost('eth_getTransactionCount', [S.account, 'latest']);
+  // Send directly to the Intelligent Contract via eth_sendTransaction
+  // MetaMask signs; Bradbury node routes through GenVM automatically
+  const hash = await window.ethereum.request({
+    method: 'eth_sendTransaction',
+    params: [{
+      from:  S.account,
+      to:    addr,
+      data:  calldata,
+      gas:   '0xF4240',
+      value: valueWei
+    }]
+  });
 
-  // Get gas price
-  let gasPrice = '0x3B9ACA00'; // 1 gwei default
-  try { gasPrice = await rpcPost('eth_gasPrice', []); } catch {}
-
-  const txParams = {
-    from:     S.account,
-    to:       addr,
-    data:     data,
-    gas:      '0x7A120',   // 500,000 gas
-    gasPrice: gasPrice,
-    nonce:    nonce,
-    value:    valueWei,
-    chainId:  '0x107D'     // 4221 Bradbury
-  };
-
-  // Step 1: Sign the transaction with MetaMask
-  let signedTx;
-  try {
-    signedTx = await window.ethereum.request({
-      method: 'eth_signTransaction',
-      params: [txParams]
-    });
-  } catch(signErr) {
-    // Fallback: some MetaMask versions use eth_sendTransaction
-    // which internally signs and sends — try that
-    txLog('eth_signTransaction failed, trying eth_sendTransaction fallback…', 'inf');
-    const hash = await window.ethereum.request({
-      method: 'eth_sendTransaction',
-      params: [txParams]
-    });
-    txLog(`TX submitted: ${hash}`, 'ok');
-    return hash;
-  }
-
-  // Step 2: Send raw signed transaction
-  const hash = await rpcPost('eth_sendRawTransaction', [signedTx]);
-  txLog(`TX submitted: ${hash}`, 'ok');
+  txLog(`TX: ${hash}`, 'ok');
   return hash;
 }
 
@@ -1340,7 +1360,7 @@ function openCreateMarket(){
   if(!S.connected){toast('Connect wallet first','err');return;}
   // Pre-fill with known contract address if available
   const addrField = $('f-contract-addr');
-  if(addrField && CONTRACT_ADDR && CONTRACT_ADDR !== '0x1d2A5484b03849A55817d42799Dc60caa3E6ab09'){
+  if(addrField && CONTRACT_ADDR && CONTRACT_ADDR !== 'PASTE_YOUR_NEW_CONTRACT_ADDRESS_HERE'){
     addrField.value = window.ACTIVE_CONTRACT || CONTRACT_ADDR;
   }
   openModal('m-create');
@@ -1352,7 +1372,7 @@ async function submitCreateMarket(){
   const url = ($('f-url').value||'').trim();
   const dl  = ($('f-dl').value||'').trim();
 
-  if(!contractAddr||contractAddr==='0x1d2A5484b03849A55817d42799Dc60caa3E6ab09'){
+  if(!contractAddr||contractAddr==='PASTE_YOUR_NEW_CONTRACT_ADDRESS_HERE'){
     toast('Enter your deployed contract address','err'); return;
   }
   if(!q||!url){ toast('Question and Evidence URL required','err'); return; }
