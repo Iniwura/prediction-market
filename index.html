@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8"><!-- v1781339001 -->
+<meta charset="UTF-8"><!-- v1781342816 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets — On-Chain Prediction Markets</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -316,7 +316,7 @@ footer a:hover{color:var(--purple);}
   <div class="msub">Only the contract owner (deployer wallet) can create markets.</div>
   <div class="ff">
     <label class="fl">Contract Address</label>
-    <input class="fi" id="f-contract-addr" placeholder="0x… your deployed Bradbury contract" value="0x1d2A5484b03849A55817d42799Dc60caa3E6ab09">
+    <input class="fi" id="f-contract-addr" placeholder="0x… your deployed Bradbury contract" value="0xC882128d3ee02F97A66CF6eF5D146d5aB31C6EE5">
   </div>
   <div class="ff">
     <label class="fl">Question</label>
@@ -341,28 +341,20 @@ footer a:hover{color:var(--purple);}
 <div class="mbg" id="m-bet">
 <div class="modal">
   <button class="mclose" onclick="closeModal('m-bet')">×</button>
-  <div class="mtitle" id="bet-modal-title">Place Your Bet</div>
-  <div class="msub" id="bet-modal-q" style="margin-bottom:1.5rem;font-size:13px;color:var(--text)"></div>
-
-  <div class="fl">Choose Amount to Stake</div>
-  <div class="stake-display"><span id="stake-val">1.0</span> <span class="stake-unit">GEN</span></div>
-
-  <input type="range" class="stake-slider" id="stake-slider" min="0.1" max="10" step="0.1" value="1.0"
-    oninput="updateStake(this.value)">
-
-  <div class="stake-presets">
-    <button class="spreset" onclick="setStake(0.5)">0.5 GEN</button>
-    <button class="spreset" onclick="setStake(1)">1 GEN</button>
-    <button class="spreset" onclick="setStake(2)">2 GEN</button>
-    <button class="spreset" onclick="setStake(5)">5 GEN</button>
+  <div class="mtitle" id="m-bet-title">Place YES Bet</div>
+  <div class="msub" id="m-bet-bal">Loading your points balance…</div>
+  <div class="ff">
+    <label class="fl">Points to bet</label>
+    <input class="fi" type="number" id="f-stake" min="10" step="10" value="100">
+    <input type="range" id="f-stake-range" min="10" max="1000" step="10" value="100"
+      style="width:100%;margin-top:8px;accent-color:var(--blue)"
+      oninput="$('f-stake').value=this.value;S.betAmount=parseInt(this.value)">
   </div>
-
-  <div style="font-size:11px;color:var(--muted);margin-bottom:14px;display:flex;justify-content:space-between">
-    <span>Your balance: <span id="bet-bal" style="color:var(--text)">—</span> GEN</span>
-    <span>Market: <span id="bet-market-name" style="color:var(--blue)">—</span></span>
-  </div>
-
-  <button class="bet-confirm-yes" id="bet-confirm-btn" onclick="confirmBet()">Confirm YES Bet</button>
+  <div style="font-size:11px;color:var(--muted);margin-top:4px">Min: 10 pts</div>
+  <button class="btn bsolid" style="width:100%;justify-content:center;margin-top:16px" onclick="confirmBet()">
+    Confirm Bet
+  </button>
+  <p class="hint">Points come from your wallet balance. No GEN required. Winners share the full pot.</p>
 </div>
 </div>
 
@@ -524,6 +516,13 @@ footer a:hover{color:var(--purple);}
         <div class="sbox"><div class="sval" id="p-nwon" style="color:#00BB66">0</div><div class="slbl">Won</div></div>
         <div class="sbox"><div class="sval" id="p-nactive" style="color:var(--blue)">0</div><div class="slbl">Active</div></div>
       </div>
+      <button id="btn-claim-pts" onclick="claimStarterPoints()"
+        style="background:var(--blue);border:none;color:#fff;font-family:'Syne',sans-serif;
+        font-weight:700;font-size:.75rem;letter-spacing:.1em;text-transform:uppercase;
+        padding:10px 20px;cursor:pointer;margin-bottom:16px;display:none">
+        🎁 CLAIM 1000 STARTER POINTS
+      </button>
+      <div id="pts-balance" style="font-size:13px;color:var(--muted);margin-bottom:12px"></div>
       <div class="sectitle">Your Bets</div>
       <div class="panel">
         <div style="font-size:12px;color:var(--muted)" id="p-bets-empty">No bets placed yet. Go to Markets to place a bet.</div>
@@ -556,7 +555,7 @@ footer a:hover{color:var(--purple);}
 // ════════════════════════════════════════════════════════
 //  CONFIG — update CONTRACT_ADDR with your Bradbury address
 // ════════════════════════════════════════════════════════
-const CONTRACT_ADDR = '0x1d2A5484b03849A55817d42799Dc60caa3E6ab09';
+const CONTRACT_ADDR = '0xC882128d3ee02F97A66CF6eF5D146d5aB31C6EE5';
 const OWNER_CHECK   = '0xd0dd02322af812fc0dbddc69f9a055fbbe2c6673';
 const OWNER_ADDR    = '0xd0dd02322AF812fC0dbDdC69f9a055FBBe2C6673';
 const RPC           = 'https://rpc-bradbury.genlayer.com';
@@ -585,7 +584,7 @@ let MARKETS = [
 // ════════════════════════════════════════════════════════
 //  STATE
 // ════════════════════════════════════════════════════════
-const S = { account:'', connected:false, activeIdx:-1, betSide:'', betAmount:1.0 };
+const S = { account:'', connected:false, activeIdx:-1, betSide:'', betAmount:100 };
 let userBets = {};
 let profile  = { name:'Anonymous', avatar:'🧑‍💻' };
 
@@ -679,11 +678,12 @@ function openBetModal(side) {
   btn.textContent=`Confirm ${side} Bet`;
   btn.className=side==='YES'?'bet-confirm-yes':'bet-confirm-no';
 
-  // Show user balance
-  fetchBalance(S.account).then(bal=>{
-    $('bet-bal').textContent=bal;
-    $('stake-slider').max=Math.min(10, parseFloat(bal)||10);
-  });
+  // Show points balance
+  const pts = S.points || 0;
+  const balEl = $('m-bet-bal');
+  if(balEl) balEl.textContent = 'Your points balance: ' + pts + ' pts';
+  const slider = $('f-stake-range');
+  if(slider) slider.max = Math.max(pts, 10);
 
   openModal('m-bet');
 }
@@ -708,13 +708,13 @@ async function confirmBet() {
   const m=MARKETS[idx];
   const addr=m.addr||CONTRACT_ADDR;
   const side=S.betSide;
-  const amount=S.betAmount;
+  const amount=parseInt($('f-stake')?.value)||S.betAmount||100;
 
   txLog(`Placing ${side} bet (${amount} GEN) on market ${idx+1}…`,'inf');
   toast(`Submitting ${side} bet…`);
 
   try {
-    const hash = await writeContract(addr, 'place_bet', [side]);
+    const hash = await writeContract(addr, 'place_bet', [side, S.betAmount]);
     toast('Bet submitted! Waiting for consensus…');
     txLog(`TX: ${hash.slice(0,20)}…`, 'ok');
 
@@ -870,7 +870,7 @@ function encodeAddTransaction(sender, recipient, calldata, value) {
 
 const CONSENSUS = '0x0112Bf6e83497965A5fdD6Dad1E447a6E004271D';
 
-async function writeContract(addr, method, args=[], valueWei='0x0') {
+async function writeContract(addr, method, args=[]) {
   if (!window.ethereum || !S.account) throw new Error('Wallet not connected');
 
   const calldata = encodeCalldataMsgpack(method, args);
@@ -911,7 +911,7 @@ async function writeContract(addr, method, args=[], valueWei='0x0') {
       to:    CONSENSUS,
       data:  txData,
       gas:   '0x1E8480',
-      value: valueWei
+      value: '0x0'
     }]
   });
 
@@ -1131,6 +1131,7 @@ async function onConnected(addr) {
 
   const bal=await fetchBalance(addr);
   txLog(`Balance: ${bal} GEN`,'ok');
+  await refreshPointsBalance();
 
   // Load live market state from chain
   txLog('Loading market state from chain…','inf');
@@ -1394,71 +1395,82 @@ function openCreateMarket(){
 }
 
 async function submitCreateMarket(){
-  const contractAddr = ($('f-contract-addr').value||CONTRACT_ADDR).trim();
   const q   = ($('f-q').value||'').trim();
   const url = ($('f-url').value||'').trim();
   const dl  = ($('f-dl').value||'').trim();
-
-  if(!contractAddr||contractAddr==='PASTE_YOUR_NEW_CONTRACT_ADDRESS_HERE'){
-    toast('Enter your deployed contract address','err'); return;
-  }
   if(!q||!url){ toast('Question and Evidence URL required','err'); return; }
 
-  // Disable button to prevent double submit
+  const contractAddr = CONTRACT_ADDR;
   const btn = $('btn-submit-create');
-  btn.disabled = true;
-  btn.textContent = '⟳ Submitting…';
+  if(btn){ btn.disabled=true; btn.textContent='⟳ Submitting…'; }
   closeModal('m-create');
 
-  txLog(`Creating market on ${sh(contractAddr)}…`,'inf');
+  txLog(`Creating market on ${contractAddr.slice(0,10)}…`,'inf');
   toast('Sending create_market() transaction…');
 
   try{
     const hash = await writeContract(contractAddr, 'create_market', [q, url, dl||'No deadline']);
     txLog(`TX: ${hash.slice(0,20)}…`,'ok');
-    toast('Transaction sent! Waiting for AI consensus (15–30s)…');
-
-    const result = await waitTx(hash);
+    toast('Waiting for AI consensus (15–30s)…');
+    await waitTx(hash);
     toast('Market created on-chain ✓','ok');
-    txLog('✓ Market created and finalized','ok');
+    txLog('✓ Market created','ok');
 
-    // Update or add market to local list
-    const existing = MARKETS.findIndex(m => m.addr?.toLowerCase() === contractAddr.toLowerCase());
-    const newMarket = {
-      question: q, url, deadline: dl||'No deadline',
-      yes: 0, no: 0, status: 'OPEN',
-      addr: contractAddr, outcome: '', reasoning: ''
-    };
-
-    if(existing >= 0){
-      MARKETS[existing] = newMarket;
-    } else {
-      MARKETS.push(newMarket);
-    }
-
-    // Also update CONTRACT_ADDR globally so future bets use it
-    window.ACTIVE_CONTRACT = contractAddr;
-
-    // Refresh from chain
-    const idx = existing >= 0 ? existing : MARKETS.length - 1;
-    await refreshSingleMarket(idx);
-    renderMarketsPage();
-    renderHomeMarkets();
-
-    // Clear form
+    MARKETS[0] = { question:q, url, deadline:dl||'No deadline',
+      yes:0, no:0, status:'OPEN', addr:contractAddr, outcome:'', reasoning:'' };
+    await refreshSingleMarket(0);
+    renderMarketsPage(); renderHomeMarkets();
     $('f-q').value=''; $('f-url').value=''; $('f-dl').value='';
-    $('f-contract-addr').value='';
   }catch(e){
     toast(e.message,'err'); txLog(e.message,'err');
-  } finally {
-    btn.disabled = false;
-    btn.textContent = 'Create Market on GenLayer';
+  }finally{
+    if(btn){ btn.disabled=false; btn.textContent='Create Market on GenLayer'; }
   }
 }
 
-// ════════════════════════════════════════════════════════
-//  CLAIM WINNINGS + REFUND
-// ════════════════════════════════════════════════════════
+
+async function claimStarterPoints(){
+  if(!S.connected){toast('Connect wallet first','err');return;}
+  const btn=$('btn-claim-pts');
+  btn.disabled=true; btn.textContent='⟳ Claiming…';
+  toast('Claiming 1000 starter points…');
+  txLog('Sending claim_points()…','inf');
+  try{
+    const hash=await writeContract(CONTRACT_ADDR,'claim_points',[]);
+    txLog(`TX: ${hash.slice(0,20)}…`,'ok');
+    toast('Waiting for consensus…');
+    await waitTx(hash);
+    toast('1000 points claimed ✓','ok');
+    txLog('✓ Starter points credited','ok');
+    btn.style.display='none';
+    await refreshPointsBalance();
+    renderProfile();
+  }catch(e){
+    toast(e.message,'err'); txLog(e.message,'err');
+    btn.disabled=false; btn.textContent='🎁 CLAIM 1000 STARTER POINTS';
+  }
+}
+
+async function refreshPointsBalance(){
+  if(!S.account) return;
+  try{
+    const raw = await readContract(CONTRACT_ADDR,'get_my_points',[S.account]);
+    if(raw){
+      const lines = raw.split('\n');
+      const bal = lines.find(l=>l.startsWith('balance:'))?.split(':')[1]?.trim();
+      const hasClaimed = lines.find(l=>l.startsWith('claimed:'))?.split(':')[1]?.trim();
+      S.points = parseInt(bal)||0;
+      S.hasClaimed = hasClaimed === 'True';
+      const ptsEl=$('pts-balance');
+      if(ptsEl) ptsEl.textContent='Points balance: '+S.points+' pts';
+      const claimBtn=$('btn-claim-pts');
+      if(claimBtn) claimBtn.style.display = S.hasClaimed ? 'none' : 'block';
+      const betBalEl=$('m-bet-bal');
+      if(betBalEl) betBalEl.textContent='Your points balance: '+S.points+' pts';
+    }
+  }catch{}
+}
+
 async function claimWinnings(){
   if(S.activeIdx < 0 || !S.connected){ toast('No market selected','err'); return; }
   const m = MARKETS[S.activeIdx];
