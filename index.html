@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8"><!-- v1781332403 -->
+<meta charset="UTF-8"><!-- v1781333072 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets — On-Chain Prediction Markets</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -874,24 +874,43 @@ async function writeContract(addr, method, args=[], valueWei='0x0') {
   if (!window.ethereum || !S.account) throw new Error('Wallet not connected');
 
   const calldata = encodeCalldataMsgpack(method, args);
-  txLog(`Sending ${method}(${args.map(a=>JSON.stringify(a)).join(',')}) to ${addr.slice(0,10)}…`, 'inf');
+  txLog(`${method}(${args.map(a=>JSON.stringify(a)).join(',')}) → consensus`, 'inf');
 
-  // Send directly to the Intelligent Contract via eth_sendTransaction
-  // MetaMask signs; Bradbury node routes through GenVM automatically
+  // addTransaction(address _sender, address _recipient, uint256 _numOfInitialValidators,
+  //                uint256 _maxRotations, bytes _calldata, uint256 _validUntil)
+  // selector = keccak256("addTransaction(address,address,uint256,uint256,bytes,uint256)")[:4]
+  const SELECTOR    = 'e71d5196'; // keccak256('addTransaction(address,address,uint256,uint256,bytes,uint256)')[:4]
+  const sender      = S.account.toLowerCase().replace('0x','').padStart(64,'0');
+  const recipient   = addr.toLowerCase().replace('0x','').padStart(64,'0');
+  const validators  = (5).toString(16).padStart(64,'0');
+  const maxRot      = (3).toString(16).padStart(64,'0');
+  const validUntil  = (Math.floor(Date.now()/1000) + 3600).toString(16).padStart(64,'0');
+  // bytes is dynamic: offset = 6 params * 32 bytes = 192 = 0xc0
+  const bytesOffset = (192).toString(16).padStart(64,'0');
+  // calldata bytes
+  const cdHex       = calldata.startsWith('0x') ? calldata.slice(2) : calldata;
+  const cdLen       = (cdHex.length / 2).toString(16).padStart(64,'0');
+  // pad calldata to 32-byte boundary
+  const cdPadded    = cdHex.padEnd(Math.ceil(cdHex.length/64)*64, '0');
+
+  const txData = '0x' + SELECTOR + sender + recipient + validators + maxRot
+               + bytesOffset + validUntil + cdLen + cdPadded;
+
   const hash = await window.ethereum.request({
     method: 'eth_sendTransaction',
     params: [{
       from:  S.account,
-      to:    addr,
-      data:  calldata,
-      gas:   '0xF4240',
-      value: valueWei
+      to:    CONSENSUS,       // 0x0112Bf6e83497965A5fdD6Dad1E447a6E004271D
+      data:  txData,
+      gas:   '0x1E8480',     // 2,000,000 gas
+      value: valueWei        // GEN for payable methods like place_bet
     }]
   });
 
   txLog(`TX: ${hash}`, 'ok');
   return hash;
 }
+
 
 // ── CALLDATA ENCODER (GenLayer custom format) ─────────────
 // Reverse-engineered from genlayer-js source (src/abi/calldata/)
