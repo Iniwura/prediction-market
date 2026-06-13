@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8"><!-- v1781342816 -->
+<meta charset="UTF-8"><!-- v1781343885 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets — On-Chain Prediction Markets</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -572,7 +572,6 @@ const NET = {
 //  LOCAL MARKET CACHE (seeded from chain on load)
 // ════════════════════════════════════════════════════════
 // Markets are loaded from chain on connect.
-// Do NOT hardcode status here — it will be overwritten by chain data.
 let MARKETS = [
   { question:'Loading from chain…',
     url:'', deadline:'', yes:0, no:0,
@@ -580,6 +579,19 @@ let MARKETS = [
     outcome:'', reasoning:'',
     yes_pool:0, no_pool:0 }
 ];
+
+// Clear stale bets from old contracts
+(function clearStaleBets(){
+  const savedContract = localStorage.getItem('gmcontract');
+  if(savedContract !== CONTRACT_ADDR){
+    // Contract changed — wipe all bet data
+    Object.keys(localStorage).forEach(k=>{
+      if(k.startsWith('gmbets')) localStorage.removeItem(k);
+      if(k.startsWith('gmclaimed')) localStorage.removeItem(k);
+    });
+    localStorage.setItem('gmcontract', CONTRACT_ADDR);
+  }
+})();
 
 // ════════════════════════════════════════════════════════
 //  STATE
@@ -662,31 +674,33 @@ function openBetModal(side) {
   if(!S.connected){toast('Connect wallet first','err');return;}
   const idx=S.activeIdx;
   if(idx<0){toast('No market selected','err');return;}
-  if(userBets[idx]){toast(`Already bet ${userBets[idx]} on this market`,'err');return;}
 
+  // Check on-chain bet, not localStorage
   const m=MARKETS[idx];
-  S.betSide=side;
-  S.betAmount=1.0;
-  $('stake-slider').value=1.0;
-  $('stake-val').textContent='1.0';
-  $('bet-modal-title').textContent=`Bet ${side} on this market`;
-  $('bet-modal-q').textContent=m.question;
-  $('bet-market-name').textContent=sh(m.addr||CONTRACT_ADDR);
+  if(m.status!=='OPEN'){toast('Market is not open','err');return;}
 
-  // Update confirm button style
-  const btn=$('bet-confirm-btn');
-  btn.textContent=`Confirm ${side} Bet`;
-  btn.className=side==='YES'?'bet-confirm-yes':'bet-confirm-no';
+  S.betSide=side;
+  S.betAmount=100;
+
+  // Update modal title
+  const titleEl=$('m-bet-title');
+  if(titleEl) titleEl.textContent=`Place ${side} Bet`;
 
   // Show points balance
-  const pts = S.points || 0;
-  const balEl = $('m-bet-bal');
-  if(balEl) balEl.textContent = 'Your points balance: ' + pts + ' pts';
-  const slider = $('f-stake-range');
-  if(slider) slider.max = Math.max(pts, 10);
+  const pts=S.points||0;
+  const balEl=$('m-bet-bal');
+  if(balEl) balEl.textContent=`Your points balance: ${pts} pts`;
+
+  // Set slider range
+  const slider=$('f-stake-range');
+  const input=$('f-stake');
+  if(slider){ slider.max=Math.max(pts,100); slider.value=Math.min(100,pts); }
+  if(input){ input.max=pts; input.value=Math.min(100,pts); }
+  S.betAmount=Math.min(100,pts)||100;
 
   openModal('m-bet');
 }
+
 
 function updateStake(val) {
   const v=parseFloat(val).toFixed(1);
