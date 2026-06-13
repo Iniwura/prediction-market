@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8"><!-- v1781389487 -->
+<meta charset="UTF-8"><!-- v1781392010 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets · AI Prediction Markets on GenLayer</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -957,6 +957,17 @@ footer{
 .mfill { animation: bar-fill 800ms var(--ease-out) both; }
 .mfill.crowd { animation-delay: 200ms; }
 
+/* AI odds pending badge */
+.ai-pending {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: rgba(124,111,247,.1); color: var(--purple);
+  border: 1px solid rgba(124,111,247,.25);
+  font-size: 9px; letter-spacing: .1em; text-transform: uppercase;
+  padding: 3px 10px; border-radius: 100px; font-weight: 600;
+  margin-bottom: 8px;
+}
+.ai-pending .spin { width:10px; height:10px; border-width:1.5px; }
+
 </style>
 </head>
 <body>
@@ -1292,6 +1303,7 @@ const NET = {
 // Markets loaded from chain — multi-market support
 let MARKETS = [];
 let MARKET_COUNT = 0;
+let PENDING_ODDS = new Set(); // market IDs awaiting AI odds consensus
 
 // Clear stale bets from old contracts
 (function clearStaleBets(){
@@ -1338,10 +1350,10 @@ const $ = id => document.getElementById(id);
 const ts = () => new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
 const sh = a => a&&a.length>10?a.slice(0,6)+'…'+a.slice(-4):a;
 
-function toast(msg, type='ok') {
+function toast(msg, type='ok', duration=4000) {
   const el=$('toast'); el.textContent=msg;
   el.className=`show t${type}`;
-  clearTimeout(el._t); el._t=setTimeout(()=>el.className='',4000);
+  clearTimeout(el._t); el._t=setTimeout(()=>el.className='',duration);
 }
 
 function txLog(msg, type='') {
@@ -1409,25 +1421,34 @@ function setStakeMode(mode) {
 
 function updatePayoutEstimate() {
   const idx = S.activeIdx;
-  if(idx < 0) return;
-  const m   = MARKETS[idx];
-  const amt = parseInt($('f-stake')?.value)||100;
-  const side= S.betSide;
-  if(!m || !side) return;
+  const el  = $('predict-payout');
+  if(!el) return;
+  if(idx < 0){ el.innerHTML = 'Enter an amount to see estimated payout'; return; }
 
-  const myPool = side==='YES' ? (m.yes_pool||0) : (m.no_pool||0);
-  const totPool= (m.yes_pool||0) + (m.no_pool||0);
-  // After my bet: new pools
+  const m    = MARKETS[idx];
+  const amt  = parseInt($('f-stake')?.value) || S.betAmount || 100;
+  const side = S.betSide;
+  if(!m || !side){ el.innerHTML = 'Enter an amount to see estimated payout'; return; }
+
+  const outcomes = m.outcomes || ['YES','NO'];
+  const pools    = m.pools || {};
+  const myPool   = pools[side] || 0;
+  const totPool  = outcomes.reduce((sum,o) => sum + (pools[o]||0), 0);
+
+  // After my prediction lands: new pool sizes
   const newMyPool  = myPool + amt;
   const newTotPool = totPool + amt;
-  const estPayout  = newTotPool > 0 ? Math.round(amt * newTotPool / newMyPool) : amt;
+  const estPayout  = newMyPool > 0 ? Math.round(amt * newTotPool / newMyPool) : amt;
   const profit     = estPayout - amt;
   const profitStr  = profit >= 0 ? '+'+profit : ''+profit;
-  const el = $('predict-payout');
-  if(el) el.innerHTML =
+  const isFirst    = totPool === 0;
+
+  el.innerHTML =
     `If <strong>${side}</strong> wins: <strong style="color:var(--blue)">${estPayout} pts</strong> `+
     `<span style="color:${profit>=0?'var(--blue)':'var(--no)'}">(${profitStr} pts)</span>`+
-    `<br><small style="opacity:.6">Based on current pool — odds shift as more people predict</small>`;
+    `<br><small style="opacity:.6">${isFirst
+      ? 'You\'re first — payout grows as others predict against you'
+      : 'Based on current pool — payout shifts as more people predict'}</small>`;
 }
 
 function openBetModal(outcome, marketIdx) {
@@ -1975,6 +1996,19 @@ async function refreshChainData() {
     if(MARKET_COUNT === 0){ MARKETS = []; return; }
     const allRaw = await readContract(CONTRACT_ADDR, 'get_all_markets', []);
     if(allRaw && allRaw !== 'NO_MARKETS') parseAllMarkets(allRaw);
+
+    // Detect markets still waiting on initial AI odds (all probs equal = not yet refreshed)
+    // and add them to the background poller
+    for(const m of MARKETS){
+      if(!m || m.status !== 'OPEN') continue;
+      const probs = Object.values(m.aiProbMap || {});
+      const allEqual = probs.length > 1 && probs.every(p => p === probs[0]);
+      if(allEqual && m.totalBets === 0){
+        // Likely default equal-split probs — odds not yet set by AI
+        m.oddsPending = true;
+        PENDING_ODDS.add(m.id);
+      }
+    }
   } catch(e){ txLog(`Chain read error: ${e.message}`, 'err'); }
 }
 
@@ -2081,7 +2115,12 @@ function marketCard(m, idx) {
   const topOutcome = outcomes.reduce((a,b) => (aiProbMap[a]||0)>(aiProbMap[b]||0)?a:b, outcomes[0]);
   const topProb    = aiProbMap[topOutcome] || 50;
 
+  const pendingBadge = m.oddsPending ? `
+    <div class="ai-pending"><span class="spin"></span> AI assessing odds — updates automatically (~30-90 min)</div>
+  ` : '';
+
   const probHero = `
+    ${pendingBadge}
     <div class="prob-hero" style="padding:10px 0 6px">
       <div class="prob-hero-num" data-target="${topProb}">${topProb}</div>
       <div class="prob-hero-label">% · AI gives <strong>${topOutcome}</strong> highest odds</div>
@@ -2407,16 +2446,21 @@ async function submitCreateMarket(){
   try{
     const hash = await writeContract(contractAddr, 'create_market', [q, outcomes, url, dl||'No deadline']);
     txLog(`TX: ${hash.slice(0,20)}…`,'ok');
-    toast('Waiting for AI consensus (15–30s)…');
-    await waitTx(hash);
+    toast('Creating market (~15s, pure state write)…');
+    await waitTx(hash, 10);
     toast('Market created on-chain ✓','ok');
     txLog('✓ Market created','ok');
 
-    MARKETS[0] = { question:q, url, deadline:dl||'No deadline',
-      yes:0, no:0, status:'OPEN', addr:contractAddr, outcome:'', reasoning:'' };
-    await refreshSingleMarket(0);
+    await refreshChainData();
     renderMarketsPage(); renderHomeMarkets();
-    $('f-q').value=''; $('f-url').value=''; $('f-dl').value='';
+    $('f-q').value=''; $('f-url').value=''; $('f-dl').value=''; $('f-outcomes').value='YES,NO';
+
+    // Auto-trigger AI odds in the background — new market is the last index
+    const newIdx = MARKET_COUNT - 1;
+    if(newIdx >= 0){
+      txLog(`Auto-requesting AI odds for new market ${newIdx}…`,'inf');
+      refreshAiOdds(newIdx); // fire and forget — non-blocking
+    }
   }catch(e){
     toast(e.message,'err'); txLog(e.message,'err');
   }finally{
@@ -2525,31 +2569,61 @@ async function claimWinnings(){
   }
 }
 
-async function refreshAiOdds(){
+async function refreshAiOdds(idx){
   if(!S.connected){toast('Connect wallet first','err');return;}
-  const idx=S.activeIdx;
-  if(idx<0){toast('No market selected','err');return;}
-  const m=MARKETS[idx];
-  const addr=m.addr||CONTRACT_ADDR;
-  const btn=$('btn-refresh-odds');
-  if(btn){btn.disabled=true;btn.textContent='⟳ Fetching AI assessment…';}
-  txLog('Calling refresh_ai_odds() — LLM fetching latest evidence…','inf');
-  toast('Requesting AI odds update (30–60s)…');
+  if(idx === undefined) idx = S.activeIdx;
+  if(idx < 0){toast('No market selected','err');return;}
+  const m = MARKETS[idx];
+  const addr = m.addr || CONTRACT_ADDR;
+  const btn = $('btn-refresh-odds');
+
+  if(btn){btn.disabled=true;btn.textContent='⟳ Submitting…';}
+  txLog(`refresh_ai_odds(${idx}) — submitting…`,'inf');
+
   try{
-    const hash=await writeContract(addr,'refresh_ai_odds',[idx]);
+    const hash = await writeContract(addr,'refresh_ai_odds',[idx]);
     txLog(`TX: ${hash.slice(0,20)}…`,'ok');
-    await waitTx(hash);
-    toast('AI odds updated ✓','ok');
-    await refreshSingleMarket(idx);
-    renderMarketsPage();
-    renderHomeMarkets();
-    updateDetailUI(idx);
+
+    // Don't block on full finalization — GenLayer consensus for
+    // non-deterministic calls can take 30-90 min. Submit and move on.
+    PENDING_ODDS.add(idx);
+    if(MARKETS[idx]) MARKETS[idx].oddsPending = true;
+
+    toast('AI is assessing odds via GenLayer consensus (~30-90 min). Keep using the app — odds update automatically when ready.', 'ok', 6000);
+    txLog(`AI odds request submitted for market ${idx} — will auto-update when consensus finalizes`,'inf');
+
+    renderMarketsPage(); renderHomeMarkets();
+    if(S.activeIdx === idx) updateDetailUI(idx);
   }catch(e){
     toast(e.message,'err');txLog(e.message,'err');
   }finally{
     if(btn){btn.disabled=false;btn.textContent='🔄 REFRESH AI ODDS';}
   }
 }
+
+// Background poller — checks pending markets every 60s
+async function pollPendingOdds(){
+  if(PENDING_ODDS.size === 0) return;
+  for(const idx of [...PENDING_ODDS]){
+    try{
+      const raw = await readContract(CONTRACT_ADDR, 'get_market', [idx]);
+      if(!raw) continue;
+      const lines = raw.split('\n');
+      const reasoning = lines.find(l=>l.startsWith('AI Reasoning:'))?.slice(13) || '';
+      if(reasoning && !reasoning.includes('pending')){
+        // Odds updated!
+        parseSingleMarket(idx, raw);
+        MARKETS[idx].oddsPending = false;
+        PENDING_ODDS.delete(idx);
+        txLog(`✓ AI odds ready for market ${idx}`,'ok');
+        toast(`AI odds updated for "${MARKETS[idx].question.slice(0,30)}…" ✓`,'ok');
+        renderMarketsPage(); renderHomeMarkets();
+        if(S.activeIdx === idx) { updateDetailUI(idx); setTimeout(runCountUps,100); }
+      }
+    }catch{}
+  }
+}
+setInterval(pollPendingOdds, 60000);
 
 async function requestRefund(){
   if(S.activeIdx < 0 || !S.connected){ toast('No market selected','err'); return; }
