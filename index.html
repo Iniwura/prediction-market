@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8"><!-- v1781333072 -->
+<meta charset="UTF-8"><!-- v1781339001 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets — On-Chain Prediction Markets</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -876,34 +876,42 @@ async function writeContract(addr, method, args=[], valueWei='0x0') {
   const calldata = encodeCalldataMsgpack(method, args);
   txLog(`${method}(${args.map(a=>JSON.stringify(a)).join(',')}) → consensus`, 'inf');
 
-  // addTransaction(address _sender, address _recipient, uint256 _numOfInitialValidators,
-  //                uint256 _maxRotations, bytes _calldata, uint256 _validUntil)
+  // ABI-encode addTransaction(address,address,uint256,uint256,bytes,uint256)
   // selector = keccak256("addTransaction(address,address,uint256,uint256,bytes,uint256)")[:4]
-  const SELECTOR    = 'e71d5196'; // keccak256('addTransaction(address,address,uint256,uint256,bytes,uint256)')[:4]
-  const sender      = S.account.toLowerCase().replace('0x','').padStart(64,'0');
-  const recipient   = addr.toLowerCase().replace('0x','').padStart(64,'0');
-  const validators  = (5).toString(16).padStart(64,'0');
-  const maxRot      = (3).toString(16).padStart(64,'0');
-  const validUntil  = (Math.floor(Date.now()/1000) + 3600).toString(16).padStart(64,'0');
-  // bytes is dynamic: offset = 6 params * 32 bytes = 192 = 0xc0
-  const bytesOffset = (192).toString(16).padStart(64,'0');
-  // calldata bytes
-  const cdHex       = calldata.startsWith('0x') ? calldata.slice(2) : calldata;
-  const cdLen       = (cdHex.length / 2).toString(16).padStart(64,'0');
-  // pad calldata to 32-byte boundary
-  const cdPadded    = cdHex.padEnd(Math.ceil(cdHex.length/64)*64, '0');
+  // Verified via viem encodeFunctionData
+  const SELECTOR   = 'e71d5196';
+  const pad        = v => v.toString(16).padStart(64,'0');
+  const padAddr    = a => a.toLowerCase().replace('0x','').padStart(64,'0');
 
-  const txData = '0x' + SELECTOR + sender + recipient + validators + maxRot
-               + bytesOffset + validUntil + cdLen + cdPadded;
+  const cdHex      = calldata.startsWith('0x') ? calldata.slice(2) : calldata;
+  const cdByteLen  = cdHex.length / 2;
+  // Static slots: sender(1) recipient(2) validators(3) maxRot(4) cd_offset(5) validUntil(6)
+  // bytes dynamic data starts after 6 static slots = 6*32 = 192 = 0xc0
+  const cdOffset   = pad(192);
+  const validUntil = pad(Math.floor(Date.now()/1000) + 3600);
+  const cdLen      = pad(cdByteLen);
+  const cdPadded   = cdHex.padEnd(Math.ceil(cdHex.length / 64) * 64, '0');
+
+  const txData = '0x' + SELECTOR
+    + padAddr(S.account)   // _sender
+    + padAddr(addr)        // _recipient
+    + pad(5)               // _numOfInitialValidators
+    + pad(3)               // _maxRotations
+    + cdOffset             // _calldata offset (dynamic)
+    + validUntil           // _validUntil
+    + cdLen                // _calldata length
+    + cdPadded;            // _calldata bytes (padded to 32)
+
+  txLog(`addTransaction data: ${txData.slice(0,40)}…`, 'inf');
 
   const hash = await window.ethereum.request({
     method: 'eth_sendTransaction',
     params: [{
       from:  S.account,
-      to:    CONSENSUS,       // 0x0112Bf6e83497965A5fdD6Dad1E447a6E004271D
+      to:    CONSENSUS,
       data:  txData,
-      gas:   '0x1E8480',     // 2,000,000 gas
-      value: valueWei        // GEN for payable methods like place_bet
+      gas:   '0x1E8480',
+      value: valueWei
     }]
   });
 
