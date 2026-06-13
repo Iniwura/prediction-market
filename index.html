@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8"><!-- v1781343885 -->
+<meta charset="UTF-8"><!-- v1781363770 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets — On-Chain Prediction Markets</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -316,7 +316,7 @@ footer a:hover{color:var(--purple);}
   <div class="msub">Only the contract owner (deployer wallet) can create markets.</div>
   <div class="ff">
     <label class="fl">Contract Address</label>
-    <input class="fi" id="f-contract-addr" placeholder="0x… your deployed Bradbury contract" value="0xC882128d3ee02F97A66CF6eF5D146d5aB31C6EE5">
+    <input class="fi" id="f-contract-addr" placeholder="0x… your deployed Bradbury contract" value="0x1Cb5f0Ea35415a9f16070462fB2B6fFf24f6C38F">
   </div>
   <div class="ff">
     <label class="fl">Question</label>
@@ -341,20 +341,23 @@ footer a:hover{color:var(--purple);}
 <div class="mbg" id="m-bet">
 <div class="modal">
   <button class="mclose" onclick="closeModal('m-bet')">×</button>
-  <div class="mtitle" id="m-bet-title">Place YES Bet</div>
+  <div class="mtitle" id="m-bet-title">Predict YES</div>
   <div class="msub" id="m-bet-bal">Loading your points balance…</div>
   <div class="ff">
     <label class="fl">Points to bet</label>
-    <input class="fi" type="number" id="f-stake" min="10" step="10" value="100">
+    <input class="fi" type="number" id="f-stake" min="10" step="10" value="100" oninput="S.betAmount=parseInt(this.value)||100;updatePayoutEstimate()">
     <input type="range" id="f-stake-range" min="10" max="1000" step="10" value="100"
       style="width:100%;margin-top:8px;accent-color:var(--blue)"
-      oninput="$('f-stake').value=this.value;S.betAmount=parseInt(this.value)">
+      oninput="$('f-stake').value=this.value;S.betAmount=parseInt(this.value);updatePayoutEstimate()">
   </div>
   <div style="font-size:11px;color:var(--muted);margin-top:4px">Min: 10 pts</div>
   <button class="btn bsolid" style="width:100%;justify-content:center;margin-top:16px" onclick="confirmBet()">
-    Confirm Bet
+    Confirm Prediction
   </button>
-  <p class="hint">Points come from your wallet balance. No GEN required. Winners share the full pot.</p>
+  <div id="predict-payout" style="margin:10px 0;padding:10px;background:var(--card);border-radius:4px;font-size:12px;color:var(--muted)">
+    Enter an amount to see estimated payout
+  </div>
+  <p class="hint">No GEN required — just points. Winners share the full pot proportionally.</p>
 </div>
 </div>
 
@@ -443,10 +446,16 @@ footer a:hover{color:var(--purple);}
         <div class="vcounts"><span id="d-yc">—</span><span id="d-nc">—</span></div>
       </div>
       <div class="bgrid">
-        <button class="bbet byes" id="btn-yes" onclick="openBetModal('YES')" disabled>YES<small>This will happen</small></button>
-        <button class="bbet bno"  id="btn-no"  onclick="openBetModal('NO')"  disabled>NO<small>This won't happen</small></button>
+        <button class="bbet byes" id="btn-yes" onclick="openBetModal('YES')" disabled>YES<small>predict YES</small></button>
+        <button class="bbet bno"  id="btn-no"  onclick="openBetModal('NO')"  disabled>NO<small>predict NO</small></button>
       </div>
       <button class="bresolve" id="btn-res" onclick="resolveMarket()" disabled>⚖ Resolve Market — Owner Only</button>
+      <button id="btn-refresh-odds" onclick="refreshAiOdds()"
+        style="width:100%;margin-top:6px;padding:10px;background:transparent;
+        border:1.5px solid var(--muted);color:var(--muted);font-family:'Syne',sans-serif;
+        font-weight:700;font-size:.75rem;letter-spacing:.1em;text-transform:uppercase;cursor:pointer">
+        🔄 REFRESH AI ODDS
+      </button>
 
       <!-- Post-resolution actions -->
       <div id="post-res-actions" style="margin-top:10px">
@@ -523,12 +532,12 @@ footer a:hover{color:var(--purple);}
         🎁 CLAIM 1000 STARTER POINTS
       </button>
       <div id="pts-balance" style="font-size:13px;color:var(--muted);margin-bottom:12px"></div>
-      <div class="sectitle">Your Bets</div>
+      <div class="sectitle">Your Predictions</div>
       <div class="panel">
         <div style="font-size:12px;color:var(--muted)" id="p-bets-empty">No bets placed yet. Go to Markets to place a bet.</div>
         <div id="p-bets-list"></div>
       </div>
-      <div class="sectitle">Your Betted Markets</div>
+      <div class="sectitle">Your Predicted Markets</div>
       <div class="mgrid" id="p-mgrid"></div>
     </div>
   </div>
@@ -555,7 +564,7 @@ footer a:hover{color:var(--purple);}
 // ════════════════════════════════════════════════════════
 //  CONFIG — update CONTRACT_ADDR with your Bradbury address
 // ════════════════════════════════════════════════════════
-const CONTRACT_ADDR = '0xC882128d3ee02F97A66CF6eF5D146d5aB31C6EE5';
+const CONTRACT_ADDR = '0x1Cb5f0Ea35415a9f16070462fB2B6fFf24f6C38F';
 const OWNER_CHECK   = '0xd0dd02322af812fc0dbddc69f9a055fbbe2c6673';
 const OWNER_ADDR    = '0xd0dd02322AF812fC0dbDdC69f9a055FBBe2C6673';
 const RPC           = 'https://rpc-bradbury.genlayer.com';
@@ -670,6 +679,29 @@ function saveProfile() {
 // ════════════════════════════════════════════════════════
 //  BET MODAL
 // ════════════════════════════════════════════════════════
+function updatePayoutEstimate() {
+  const idx = S.activeIdx;
+  if(idx < 0) return;
+  const m   = MARKETS[idx];
+  const amt = parseInt($('f-stake')?.value)||100;
+  const side= S.betSide;
+  if(!m || !side) return;
+
+  const myPool = side==='YES' ? (m.yes_pool||0) : (m.no_pool||0);
+  const totPool= (m.yes_pool||0) + (m.no_pool||0);
+  // After my bet: new pools
+  const newMyPool  = myPool + amt;
+  const newTotPool = totPool + amt;
+  const estPayout  = newTotPool > 0 ? Math.round(amt * newTotPool / newMyPool) : amt;
+  const profit     = estPayout - amt;
+  const profitStr  = profit >= 0 ? '+'+profit : ''+profit;
+  const el = $('predict-payout');
+  if(el) el.innerHTML =
+    `If <strong>${side}</strong> wins: <strong style="color:var(--blue)">${estPayout} pts</strong> `+
+    `<span style="color:${profit>=0?'var(--blue)':'var(--no)'}">(${profitStr} pts)</span>`+
+    `<br><small style="opacity:.6">Based on current pool — odds shift as more people predict</small>`;
+}
+
 function openBetModal(side) {
   if(!S.connected){toast('Connect wallet first','err');return;}
   const idx=S.activeIdx;
@@ -699,6 +731,7 @@ function openBetModal(side) {
   S.betAmount=Math.min(100,pts)||100;
 
   openModal('m-bet');
+  setTimeout(updatePayoutEstimate, 50);
 }
 
 
@@ -1216,27 +1249,29 @@ function parseLiveMarket(idx, raw) {
     return l ? l.slice(k.length + 1).trim() : '';
   };
 
-  const status   = get('Status')   || 'EMPTY';
-  const question = get('Question') || 'No market created yet';
-  const deadline = get('Deadline') || '—';
-  const outcome  = get('Outcome')  || '';
-  const reasoning= get('Reasoning')|| '';
-  const owner    = get('Owner')    || '';
+  const status    = get('Status')         || 'EMPTY';
+  const question  = get('Question')       || 'No market created yet';
+  const deadline  = get('Deadline')       || '—';
+  const outcome   = get('Outcome')        || '';
+  const reasoning = get('Reasoning')      || '';
+  const owner     = get('Owner')          || '';
+  const aiProb    = parseInt(get('AI Probability')) || 50;
+  const aiReason  = get('AI Reasoning')   || '';
 
-  // "YES bets:3 (75.0%) 1.5 GEN" → parse first number
   const yes = parseInt(get('YES bets')) || 0;
   const no  = parseInt(get('NO bets'))  || 0;
 
-  // Pool sizes from "X.XXXX GEN" strings
-  const yesPoolStr = get('YES bets').match(/[\d.]+(?= GEN)/)?.[0] || '0';
-  const noPoolStr  = get('NO bets').match(/[\d.]+(?= GEN)/)?.[0]  || '0';
+  // Pool sizes from "X pts" strings
+  const yesPoolStr = get('YES bets').match(/[\d]+(?= pts)/)?.[0] || '0';
+  const noPoolStr  = get('NO bets').match(/[\d]+(?= pts)/)?.[0]  || '0';
 
   MARKETS[idx] = {
     ...MARKETS[idx],
     question, status, deadline, outcome, reasoning, owner,
+    aiProb, aiReason,
     yes, no,
-    yes_pool: parseFloat(yesPoolStr),
-    no_pool:  parseFloat(noPoolStr),
+    yes_pool: parseInt(yesPoolStr),
+    no_pool:  parseInt(noPoolStr),
   };
 
   txLog(`Market ${idx+1}: [${status}] "${question.slice(0,50)}" YES:${yes} NO:${no}`, 'ok');
@@ -1249,6 +1284,14 @@ function marketCard(m, idx) {
   const total=m.yes+m.no;
   const yp=total>0?Math.round(m.yes/total*100):50;
   const myBet=userBets[idx];
+
+  // AI probability
+  const aiProb   = m.aiProb || 50;
+  const aiNoPct  = 100 - aiProb;
+
+  // Crowd probability from pool
+  const totPool  = (m.yes_pool||0) + (m.no_pool||0);
+  const crowdYes = totPool > 0 ? Math.round(m.yes_pool/totPool*100) : null;
 
   const betRow = S.connected
     ? `<div class="mc-btns">
@@ -1277,16 +1320,34 @@ function marketCard(m, idx) {
       ${m.status==='LOADING'?'Reading from chain…':isOwner?'<span style="color:var(--blue);cursor:pointer" onclick="event.stopPropagation();openCreateMarket()">+ Create a market to enable betting →</span>':'No active market — check back soon'}
     </div>` : betRow;
 
+  // Build odds display
+  const oddsSection = (m.status==='EMPTY'||m.status==='LOADING') ? '' : `
+    <div style="margin:8px 0 4px;font-size:10px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase">AI PROBABILITY</div>
+    <div class="mbar" title="AI estimates ${aiProb}% chance YES">
+      <div class="mfill" style="width:${aiProb}%;background:var(--blue)"></div>
+    </div>
+    <div class="mmeta" style="margin-bottom:6px">
+      <span style="color:var(--blue);font-weight:600">YES ${aiProb}%</span>
+      <span style="font-size:10px;color:var(--muted)">${m.aiReason ? m.aiReason.replace(/\[.*?\]\s*/,'').slice(0,50)+'…' : 'AI assessed'}</span>
+      <span style="color:var(--no);font-weight:600">NO ${aiNoPct}%</span>
+    </div>
+    ${crowdYes !== null ? `
+    <div style="font-size:10px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase">CROWD (${total} predictions)</div>
+    <div class="mbar" title="Crowd: ${crowdYes}% YES">
+      <div class="mfill" style="width:${crowdYes}%;background:var(--purple);opacity:.7"></div>
+    </div>
+    <div class="mmeta">
+      <span style="color:var(--purple);font-weight:500">YES ${crowdYes}%</span>
+      <span>${m.deadline||'—'}</span>
+      <span style="color:var(--no);font-weight:500;opacity:.7">NO ${100-crowdYes}%</span>
+    </div>` : `<div style="font-size:10px;color:var(--muted);margin:4px 0">${total} predictions · ${m.deadline||'—'}</div>`}
+  `;
+
   return `
   <div class="mc" onclick="openDetail(${idx})">
     <div class="ms" style="color:${statusColor}">${statusLabel}</div>
     <div class="mq">${m.question}</div>
-    <div class="mbar"><div class="mfill" style="width:${yp}%"></div></div>
-    <div class="mmeta">
-      <span style="color:var(--blue);font-weight:500">YES ${yp}%</span>
-      <span>${total} bets · ${m.deadline||'—'}</span>
-      <span style="color:var(--no);font-weight:500">NO ${100-yp}%</span>
-    </div>
+    ${oddsSection}
     ${(m.status==='EMPTY'||m.status==='LOADING') ? emptyMsg : betRow}
   </div>`;
 }
@@ -1516,6 +1577,32 @@ async function claimWinnings(){
     toast(e.message,'err'); txLog(e.message,'err');
   } finally {
     btn.textContent = '🏆 Claim Winnings'; btn.disabled = false;
+  }
+}
+
+async function refreshAiOdds(){
+  if(!S.connected){toast('Connect wallet first','err');return;}
+  const idx=S.activeIdx;
+  if(idx<0){toast('No market selected','err');return;}
+  const m=MARKETS[idx];
+  const addr=m.addr||CONTRACT_ADDR;
+  const btn=$('btn-refresh-odds');
+  if(btn){btn.disabled=true;btn.textContent='⟳ Fetching AI assessment…';}
+  txLog('Calling refresh_ai_odds() — LLM fetching latest evidence…','inf');
+  toast('Requesting AI odds update (30–60s)…');
+  try{
+    const hash=await writeContract(addr,'refresh_ai_odds',[]);
+    txLog(`TX: ${hash.slice(0,20)}…`,'ok');
+    await waitTx(hash);
+    toast('AI odds updated ✓','ok');
+    await refreshSingleMarket(idx);
+    renderMarketsPage();
+    renderHomeMarkets();
+    updateDetailUI(idx);
+  }catch(e){
+    toast(e.message,'err');txLog(e.message,'err');
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent='🔄 REFRESH AI ODDS';}
   }
 }
 
