@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8"><!-- v1781374208 -->
+<meta charset="UTF-8"><!-- v1781389027 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets · AI Prediction Markets on GenLayer</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -1147,15 +1147,10 @@ footer{
       <div style="font-family:'Syne',sans-serif;font-weight:700;font-size:clamp(1.1rem,2.5vw,1.5rem);
         line-height:1.25;letter-spacing:-.025em;color:var(--text);margin-bottom:.5rem" id="d-q">—</div>
       <div style="display:flex;gap:14px;flex-wrap:wrap;font-size:11px;color:var(--muted);margin-bottom:1.4rem" id="d-meta"></div>
-      <div class="vwrap">
-        <div class="vlabels"><span class="lyes">YES <span id="d-yp">—</span></span><span class="lno">NO <span id="d-np">—</span></span></div>
-        <div class="vtrack"><div class="vfill" id="d-vf" style="width:50%"></div></div>
-        <div class="vcounts"><span id="d-yc">—</span><span id="d-nc">—</span></div>
-      </div>
-      <div class="bgrid">
-        <button class="bbet byes" id="btn-yes" onclick="openBetModal('YES')" disabled>YES<small>predict YES</small></button>
-        <button class="bbet bno"  id="btn-no"  onclick="openBetModal('NO')"  disabled>NO<small>predict NO</small></button>
-      </div>
+      <!-- Dynamic outcome bars -->
+      <div id="d-outcomes" style="margin-bottom:14px"></div>
+      <!-- Dynamic outcome buttons -->
+      <div id="d-bgrid" class="bgrid" style="grid-template-columns:repeat(2,1fr)"></div>
       <button class="bresolve" id="btn-res" onclick="resolveMarket()" disabled>⚖ Resolve Market — Owner Only</button>
       <button id="btn-refresh-odds" onclick="refreshAiOdds()"
         style="width:100%;margin-top:6px;padding:10px;background:transparent;
@@ -1917,7 +1912,9 @@ async function onConnected(addr) {
 
   // Show market status in log
   MARKETS.forEach((m,i) => {
-    txLog(`Market ${i+1}: ${m.status} | YES:${m.yes} NO:${m.no} | Pool: ${m.yes_pool||0} pts`,'inf');
+    if(!m) return;
+    const topOut = (m.outcomes||[]).reduce((a,b) => (m.aiProbMap?.[a]||0)>(m.aiProbMap?.[b]||0)?a:b, m.outcomes?.[0]);
+    txLog(`Market ${i+1}: ${m.status} | ${(m.outcomes||[]).join('/')} | Top: ${topOut} ${m.aiProbMap?.[topOut]||0}% | Pool: ${m.totalPool||0} pts`,'inf');
   });
   // Update hero featured market card
   const hm = MARKETS[0];
@@ -2146,64 +2143,110 @@ async function openDetail(idx) {
   $('detail-wrap').style.display='block';
   updateDetailUI(idx);
   $('detail-wrap').scrollIntoView({behavior:'smooth',block:'start'});
-  // Refresh from chain
-  if(MARKETS[idx].addr){
+  if(MARKETS[idx] && MARKETS[idx].addr){
     txLog(`Fetching live state for market ${idx+1}…`,'inf');
     await refreshSingleMarket(idx);
     updateDetailUI(idx);
   }
 }
 
+const OUTCOME_COLORS = ['var(--blue)','var(--no)','var(--purple)','#FF8C00','#00C851','#FF6B6B'];
+
 function updateDetailUI(idx) {
-  const m=MARKETS[idx];
-  const total=m.yes+m.no;
-  const yp=total>0?Math.round(m.yes/total*100):50;
+  const m = MARKETS[idx];
+  if(!m) return;
+  const outcomes  = m.outcomes  || ['YES','NO'];
+  const aiProbMap = m.aiProbMap || {};
+  const pools     = m.pools     || {};
+  const total     = m.totalBets || 0;
+  const open      = m.status === 'OPEN';
+  const myBet     = userBets[idx];
 
-  $('d-q').textContent=m.question;
-  $('d-dl').textContent=m.deadline?'📅 '+m.deadline:'';
-  $('d-meta').innerHTML=`<span>🗳 ${total} bets</span>${m.addr?`<span>🔗 ${sh(m.addr)}</span>`:''}`;
-  $('d-vf').style.width=yp+'%';
-  $('d-yp').textContent=total>0?yp+'%':'—';
-  $('d-np').textContent=total>0?(100-yp)+'%':'—';
-  $('d-yc').textContent=m.yes+' YES';
-  $('d-nc').textContent=m.no+' NO';
-  $('detail-title').textContent=`Market ${idx+1} of ${MARKETS.length}`;
+  $('d-q').textContent = m.question || '—';
+  $('d-dl').textContent = m.deadline ? '📅 '+m.deadline : '';
+  $('d-meta').innerHTML = `<span>🗳 ${total} predictions</span><span>🏦 ${m.totalPool||0} pts pool</span>${m.addr?`<span>🔗 ${sh(m.addr)}</span>`:''}`;
+  $('detail-title').textContent = `Market ${idx+1} of ${MARKETS.length}`;
 
-  const open=m.status==='OPEN';
-  const myBet=userBets[idx];
-  $('btn-yes').disabled=!(open&&S.connected&&!myBet);
-  $('btn-no').disabled=!(open&&S.connected&&!myBet);
-  $('btn-res').disabled=!(open&&S.connected);
-
-  const pmap={OPEN:'popen',RESOLVED:'presolved',CANCELLED:'pcancelled',EMPTY:'ploading'};
-  $('d-pill').className='pill '+(pmap[m.status]||'ploading');
-  $('d-pill').textContent='● '+m.status;
-
-  if(m.status==='RESOLVED'&&m.outcome){
-    const vc=$('verdict'); vc.classList.add('show');
-    if(m.outcome==='NO') vc.classList.add('nov');
-    const vw=$('v-word'); vw.textContent=m.outcome;
-    vw.className='vword '+(m.outcome==='YES'?'vyes':'vno');
-    const cm=m.reasoning?.match(/\[(HIGH|MEDIUM|LOW) confidence\]/);
-    if(cm) $('v-conf').textContent=cm[1];
-    $('v-text').textContent=(m.reasoning||'').replace(/\[.*?confidence\]\s*/,'');
+  // ── Render outcome probability bars ──────────────────────────
+  const outcomesEl = $('d-outcomes');
+  if(outcomesEl){
+    outcomesEl.innerHTML = outcomes.map((o,i) => {
+      const prob    = aiProbMap[o] || 0;
+      const color   = OUTCOME_COLORS[i % OUTCOME_COLORS.length];
+      const pool    = pools[o] || 0;
+      const isWinner= m.status==='RESOLVED' && o===m.winner;
+      return `
+        <div style="margin-bottom:10px">
+          <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">
+            <span style="color:${isWinner?color:'var(--text)'};font-weight:${isWinner?700:600}">
+              ${isWinner?'✓ ':''}${o}
+            </span>
+            <span style="color:${color};font-weight:700;font-variant-numeric:tabular-nums">${prob}% · ${pool} pts</span>
+          </div>
+          <div class="vtrack" style="height:6px">
+            <div class="vfill" style="width:${prob}%;background:${color}"></div>
+          </div>
+        </div>`;
+    }).join('');
+    if(m.aiReason){
+      outcomesEl.innerHTML += `<div style="font-size:10px;color:var(--muted);margin-top:6px;font-style:italic">${m.aiReason}</div>`;
+    }
   }
 
-  // Show/hide claim & refund buttons
-  const claimed    = JSON.parse(localStorage.getItem('gmclaimed')||'{}');
-  const myBetSide  = userBets[idx];
-  const isResolved = m.status === 'RESOLVED';
-  const isCancelled= m.status === 'CANCELLED';
-  const claimBtn   = $('btn-claim');
-  const refundBtn  = $('btn-refund');
+  // ── Render outcome prediction buttons ─────────────────────────
+  const bgrid = $('d-bgrid');
+  if(bgrid){
+    bgrid.style.gridTemplateColumns = `repeat(${Math.min(outcomes.length,3)},1fr)`;
+    bgrid.innerHTML = outcomes.map((o,i) => {
+      const color    = OUTCOME_COLORS[i % OUTCOME_COLORS.length];
+      const isPicked = myBet === o;
+      const disabled = !(open && S.connected && !myBet);
+      return `<button class="bbet" id="d-btn-${i}"
+        style="border-color:${isPicked?color:'var(--border)'};color:${isPicked?color:'var(--text)'}"
+        onclick="openBetModal('${o.replace(/'/g,"\\'")}',${idx})"
+        ${disabled?'disabled':''}>
+        ${isPicked?'✓ ':''}${o}<small>${isPicked?'your prediction':'predict '+o}</small>
+      </button>`;
+    }).join('');
+  }
 
-  if(claimBtn && refundBtn && S.connected && myBetSide){
+  $('btn-res').disabled = !(open && S.connected);
+
+  const pmap = {OPEN:'popen',RESOLVED:'presolved',CANCELLED:'pcancelled',EMPTY:'ploading'};
+  $('d-pill').className = 'pill '+(pmap[m.status]||'ploading');
+  $('d-pill').textContent = '● '+m.status;
+
+  // ── Verdict display ───────────────────────────────────────────
+  if(m.status==='RESOLVED' && m.winner){
+    const vc=$('verdict'); vc.classList.add('show');
+    const winnerIdx = outcomes.indexOf(m.winner);
+    const color = OUTCOME_COLORS[winnerIdx % OUTCOME_COLORS.length] || 'var(--blue)';
+    const vw=$('v-word');
+    vw.textContent = m.winner;
+    vw.style.color = color;
+    vw.className = 'vword';
+    $('v-conf').textContent = 'RESOLVED';
+    $('v-text').textContent = m.aiReason || ('AI verdict: '+m.winner);
+  } else {
+    $('verdict')?.classList.remove('show');
+  }
+
+  // ── Claim & refund buttons ──────────────────────────────────────
+  const claimed     = JSON.parse(localStorage.getItem('gmclaimed')||'{}');
+  const isResolved  = m.status === 'RESOLVED';
+  const isCancelled = m.status === 'CANCELLED';
+  const claimBtn    = $('btn-claim');
+  const refundBtn   = $('btn-refund');
+
+  if(claimBtn && refundBtn && S.connected && myBet){
     const alreadyClaimed = claimed[idx];
-    const isWinner = isResolved && myBetSide === m.outcome;
-    const isLoser  = isResolved && myBetSide !== m.outcome;
-
+    const isWinner = isResolved && myBet === m.winner;
+    const isLoser  = isResolved && myBet !== m.winner;
     claimBtn.style.display  = (isWinner && !alreadyClaimed) ? 'block' : 'none';
     refundBtn.style.display = (isLoser || isCancelled) ? 'block' : 'none';
+  } else if(claimBtn && refundBtn) {
+    claimBtn.style.display  = 'none';
+    refundBtn.style.display = 'none';
   }
 }
 
@@ -2219,7 +2262,7 @@ async function resolveMarket() {
   txLog('resolve_market() — LLM fetching live evidence…','inf');
   toast('AI referee fetching evidence (15–30s)…');
   try{
-    const hash=await writeContract(m.addr,'resolve_market',[]);
+    const hash=await writeContract(m.addr,'resolve_market',[S.activeIdx]);
     txLog(`TX: ${hash.slice(0,18)}…`,'ok');
     await waitTx(hash,30);
     toast('Market resolved on-chain ✓','ok');
@@ -2450,7 +2493,7 @@ async function claimWinnings(){
   toast('Claiming your winnings…');
 
   try{
-    const hash = await writeContract(m.addr, 'claim_winnings', []);
+    const hash = await writeContract(m.addr, 'claim_winnings', [S.activeIdx]);
     txLog(`TX: ${hash.slice(0,20)}…`,'ok');
     toast('Claim submitted! Waiting for consensus…');
     await waitTx(hash);
@@ -2484,7 +2527,7 @@ async function refreshAiOdds(){
   txLog('Calling refresh_ai_odds() — LLM fetching latest evidence…','inf');
   toast('Requesting AI odds update (30–60s)…');
   try{
-    const hash=await writeContract(addr,'refresh_ai_odds',[]);
+    const hash=await writeContract(addr,'refresh_ai_odds',[idx]);
     txLog(`TX: ${hash.slice(0,20)}…`,'ok');
     await waitTx(hash);
     toast('AI odds updated ✓','ok');
@@ -2510,7 +2553,7 @@ async function requestRefund(){
   toast('Requesting refund…');
 
   try{
-    const hash = await writeContract(m.addr, 'refund', []);
+    const hash = await writeContract(m.addr, 'refund', [S.activeIdx]);
     txLog(`TX: ${hash.slice(0,20)}…`,'ok');
     await waitTx(hash);
     toast('Refund sent ✓ — GEN returned to your wallet','ok');
@@ -2536,7 +2579,7 @@ function renderProfile(){
   $('pav-inner').textContent=profile.avatar||'🧑‍💻';
 
   const total=Object.keys(userBets).length;
-  const won=Object.entries(userBets).filter(([i,s])=>MARKETS[i]?.outcome===s).length;
+  const won=Object.entries(userBets).filter(([i,s])=>MARKETS[i]?.winner===s).length;
   const active=Object.entries(userBets).filter(([i])=>MARKETS[i]?.status==='OPEN').length;
   $('p-nbets').textContent=total;
   $('p-nwon').textContent=won;
@@ -2550,7 +2593,7 @@ function renderProfile(){
     list.innerHTML=Object.entries(userBets).map(([idx,side])=>{
       const m=MARKETS[idx]; if(!m) return '';
       const isOpen=m.status==='OPEN';
-      const isWon=m.outcome===side;
+      const isWon=m.winner===side;
       const cls=isOpen?'spend':isWon?'swon':'slost';
       const lbl=isOpen?'OPEN':isWon?'WON':'LOST';
       const sideColor=side==='YES'?'var(--blue)':'var(--no)';
@@ -2619,38 +2662,29 @@ function renderProfile(){
   // Expose debug helpers on window for console testing
   window._GL = {
     CONTRACT_ADDR,
+    LEADERBOARD_ADDR,
     RPC,
     encodeCalldataMsgpack,
     rpcPost,
     readContract,
+    MARKETS,
     // Quick test function — run window._GL.test() in console
     test: async () => {
-      const addr = CONTRACT_ADDR;
-      const data = encodeCalldataMsgpack('get_market_info', []);
-      console.log('1. Calldata:', data);
+      console.log('Testing get_market_count...');
+      const count = await readContract(CONTRACT_ADDR, 'get_market_count', []);
+      console.log('Market count:', count);
 
-      const nonce = await rpcPost('eth_getTransactionCount', [S.account,'latest']);
-      const gasPrice = await rpcPost('eth_gasPrice',[]).catch(()=>'0x3B9ACA00');
-      console.log('2. Nonce:', nonce, 'GasPrice:', gasPrice);
+      console.log('Testing get_all_markets...');
+      const all = await readContract(CONTRACT_ADDR, 'get_all_markets', []);
+      console.log('All markets:', all);
 
-      hash = await window.ethereum.request({method:'eth_sendTransaction',params:[{
-          from:S.account,to:addr,data,gas:'0x7A120',gasPrice,nonce,value:'0x0',chainId:'0x107D'
-        }]});
-      console.log('3. TX hash:', hash);
+      if(parseInt(count) > 0){
+        console.log('Testing get_market(0)...');
+        const m0 = await readContract(CONTRACT_ADDR, 'get_market', [0]);
+        console.log('Market 0:', m0);
+      }
 
-      const addr2 = CONTRACT_ADDR;
-      const Data = encodeCalldataMsgpack('get_market_info', []);
-      console.log('Encoded:', Data);
-      // Test with capital Type/Data (correct per docs)
-      const r = await rpcPost('gen_call',[{
-        to:addr2, from:S.account,
-        Type:'read', Data,
-        gas:'0x7A120', value:'0x0'
-      }]).catch(e=>({error:e.message}));
-      console.log('gen_call result:', JSON.stringify(r).slice(0,500));
-      // Try readContract
-      const mr = await readContract(CONTRACT_ADDR, 'get_market_info', []);
-      console.log('readContract result:', mr);
+      console.log('Current MARKETS array:', MARKETS);
     }
   };
   console.log('Debug: run window._GL.test() to test chain read');
