@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8"><!-- v1781423984 -->
+<meta charset="UTF-8"><!-- v1781443837 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets · AI Prediction Markets on GenLayer</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -223,6 +223,7 @@ nav{display:flex;gap:2px;flex:1;}
   padding:20px;cursor:pointer;
   border-radius:var(--radius-lg);
   box-shadow:var(--shadow-sm);
+  display:flex;flex-direction:column;
   /* Staggered entry animation */
   transition:
     box-shadow 200ms var(--ease-out),
@@ -1425,6 +1426,7 @@ function toast(msg, type='ok', duration=4000) {
 
 function txLog(msg, type='') {
   const el=$('txlog');
+  if(!el) return; // txlog only exists on the Markets page
   const d=document.createElement('div'); d.className='txe';
   d.innerHTML=`<span class="txt">${ts()}</span><span class="txm ${type}">${msg}</span>`;
   el.appendChild(d); el.scrollTop=el.scrollHeight;
@@ -2212,7 +2214,7 @@ function marketCard(m, idx) {
     <div style="font-size:9px;color:var(--muted);text-align:center;margin-bottom:4px">${m.deadline||'—'}</div>
     ${m.status!=='EMPTY'&&m.status!=='LOADING'?probHero:''}
     ${m.status==='LOADING'?'<div style="font-size:10px;color:var(--muted);padding:8px 0;text-align:center">⟳ Loading…</div>':betRow}
-    <div style="font-size:9px;color:var(--muted);margin-top:10px;display:flex;justify-content:space-between">
+    <div style="font-size:9px;color:var(--muted);margin-top:auto;padding-top:10px;display:flex;justify-content:space-between">
       <span>${totalPool} pts pool</span>
       <span>${totalBets} predictions</span>
     </div>
