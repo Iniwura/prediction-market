@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8"><!-- v1781422274 -->
+<meta charset="UTF-8"><!-- v1781423181 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets · AI Prediction Markets on GenLayer</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -44,6 +44,7 @@ body{
   -webkit-font-smoothing:antialiased;
   -moz-osx-font-smoothing:grayscale;
   transition:background .3s,color .3s;
+  display:flex;flex-direction:column;
 }
 /* Tabular numbers everywhere by default */
 body{font-variant-numeric:tabular-nums;}
@@ -111,7 +112,7 @@ nav{display:flex;gap:2px;flex:1;}
 
 /* ── PAGES ─────────────────────────────────────────────────── */
 .page{display:none;position:relative;z-index:1;}
-.page.on{display:block;}
+.page.on{display:block;flex:1;}
 .inner{max-width:900px;margin:0 auto;padding:clamp(2rem,4vw,3rem) clamp(1rem,4vw,2rem);}
 
 /* ── HERO ──────────────────────────────────────────────────── */
@@ -1001,6 +1002,22 @@ footer{
   color:var(--blue);min-width:70px;text-align:right;flex-shrink:0;
   font-variant-numeric:tabular-nums;
 }
+
+
+/* ── TOAST ──────────────────────────────────────────────────── */
+#toast{
+  position:fixed;bottom:24px;left:50%;
+  transform:translateX(-50%) translateY(8px);
+  background:var(--card);border:1px solid var(--border);
+  color:var(--text);padding:10px 22px;border-radius:var(--radius-md);
+  font-size:12px;box-shadow:var(--shadow-md);
+  opacity:0;pointer-events:none;z-index:1000;
+  transition:opacity .25s var(--ease-out),transform .25s var(--ease-out);
+  max-width:90vw;text-align:center;
+}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+#toast.tok{border-color:var(--blue);color:var(--blue);}
+#toast.terr{border-color:var(--no);color:var(--no);}
 
 </style>
 </head>
