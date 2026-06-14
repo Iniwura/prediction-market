@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8"><!-- v1781423181 -->
+<meta charset="UTF-8"><!-- v1781423984 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets · AI Prediction Markets on GenLayer</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -216,7 +216,7 @@ nav{display:flex;gap:2px;flex:1;}
   display:grid;
   grid-template-columns:repeat(auto-fill,minmax(320px,1fr));
   gap:16px;padding:clamp(1rem,2vw,1.5rem) clamp(1rem,4vw,2rem) clamp(2rem,4vw,3rem);
-  max-width:1100px;margin:0 auto;
+  max-width:1440px;margin:0 auto;
 }
 .mc{
   background:var(--card);border:1px solid var(--border);
@@ -1188,7 +1188,7 @@ footer{
 
 <!-- ── MARKETS ── -->
 <div class="page" id="page-markets">
-<div class="inner">
+<div class="inner" style="padding-bottom:0">
   <div class="ph">
     <div class="ptitle">Open Markets</div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
@@ -1200,9 +1200,11 @@ footer{
   <div class="txlog" id="txlog">
     <div class="txe"><span class="txt">--:--</span><span class="txm inf">Connect your wallet to interact with live markets on GenLayer Bradbury.</span></div>
   </div>
+</div>
 
-  <div class="mgrid" id="markets-grid"></div>
+<div class="mgrid" id="markets-grid"></div>
 
+<div class="inner" style="padding-top:0">
   <!-- Market detail -->
   <div id="detail-wrap" style="display:none">
     <div class="sectitle" style="margin-bottom:1rem" id="detail-title">Market Detail</div>
@@ -1251,11 +1253,6 @@ footer{
     </div>
   </div>
 
-  <!-- Leaderboard -->
-  <div class="panel" id="lb-panel" style="display:none">
-    <div class="sectitle">Participants</div>
-    <div id="lb-rows"></div>
-  </div>
 </div>
 </div>
 
