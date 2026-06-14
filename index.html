@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html lang="en" data-theme="light">
 <head>
-<meta charset="UTF-8"><!-- v1781421813 -->
+<meta charset="UTF-8"><!-- v1781422274 -->
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Gen Markets · AI Prediction Markets on GenLayer</title>
 <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Mono:wght@300;400;500&display=swap" rel="stylesheet">
@@ -977,6 +977,31 @@ footer{
 .mc-outcome-btn:active:not(:disabled){transform:scale(0.96);}
 .mc-outcome-btn:disabled{opacity:.4;cursor:not-allowed;}
 
+
+/* ── LEADERBOARD ROWS ──────────────────────────────────────── */
+.lb-row{
+  display:flex;align-items:center;gap:14px;
+  padding:14px 16px;background:var(--card);border:1px solid var(--border);
+  border-radius:var(--radius-md);margin-bottom:8px;
+}
+.lb-rank{
+  font-family:'Syne',sans-serif;font-weight:800;font-size:1.05rem;
+  color:var(--muted);min-width:28px;text-align:center;flex-shrink:0;
+}
+.lb-rank.top1{color:#FFB800;}
+.lb-rank.top2{color:#A8A8C0;}
+.lb-rank.top3{color:#CD7F32;}
+.lb-addr{
+  flex:1;font-family:'DM Mono',monospace;font-size:.85rem;
+  color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.lb-record{font-size:.8rem;color:var(--text2);flex-shrink:0;}
+.lb-pts{
+  font-family:'Syne',sans-serif;font-weight:800;font-size:.95rem;
+  color:var(--blue);min-width:70px;text-align:right;flex-shrink:0;
+  font-variant-numeric:tabular-nums;
+}
+
 </style>
 </head>
 <body>
@@ -1051,7 +1076,7 @@ footer{
   <!-- Staking mode toggle -->
   <div class="stake-toggle">
     <button class="stake-tab active" id="tab-points" onclick="setStakeMode('points')">
-      🎯 Points
+      Points
     </button>
     <button class="stake-tab soon" disabled title="GEN token staking coming soon">
       ⟡ GEN Token
@@ -1087,6 +1112,7 @@ footer{
   <nav>
     <button class="nb on" id="n-home"    onclick="showPage('home')">Home</button>
     <button class="nb"    id="n-markets" onclick="showPage('markets')">Markets</button>
+    <button class="nb"    id="n-leaderboard" onclick="showPage('leaderboard')">Leaderboard</button>
     <button class="nb"    id="n-profile" onclick="showPage('profile')">Profile</button>
   </nav>
   <div class="hr">
@@ -1175,12 +1201,12 @@ footer{
       <div id="d-outcomes" style="margin-bottom:14px"></div>
       <!-- Dynamic outcome buttons -->
       <div id="d-bgrid" class="bgrid" style="grid-template-columns:repeat(2,1fr)"></div>
-      <button class="bresolve" id="btn-res" onclick="resolveMarket()" disabled>⚖ Resolve Market — Owner Only</button>
+      <button class="bresolve" id="btn-res" onclick="resolveMarket()" disabled>Resolve Market — Owner Only</button>
       <button id="btn-refresh-odds" onclick="refreshAiOdds()"
         style="width:100%;margin-top:6px;padding:10px;background:transparent;
         border:1.5px solid var(--muted);color:var(--muted);font-family:'Syne',sans-serif;
         font-weight:700;font-size:.75rem;letter-spacing:.1em;text-transform:uppercase;cursor:pointer">
-        🔄 REFRESH AI ODDS
+        REFRESH AI ODDS
       </button>
 
       <!-- Post-resolution actions -->
@@ -1190,7 +1216,7 @@ footer{
             style="background:var(--blue);border:none;color:#fff;font-family:'Syne',sans-serif;
             font-weight:700;font-size:.8rem;letter-spacing:.1em;text-transform:uppercase;
             padding:12px;cursor:pointer;transition:opacity .2s;display:none">
-            🏆 Claim Winnings
+            Claim Winnings
           </button>
           <button id="btn-refund" onclick="requestRefund()"
             style="background:transparent;border:1.5px solid var(--muted);color:var(--muted);
@@ -1255,7 +1281,7 @@ footer{
         style="background:var(--blue);border:none;color:#fff;font-family:'Syne',sans-serif;
         font-weight:700;font-size:.75rem;letter-spacing:.1em;text-transform:uppercase;
         padding:10px 20px;cursor:pointer;margin-bottom:16px;display:none">
-        🎁 CLAIM 1000 STARTER POINTS
+        CLAIM 1000 STARTER POINTS
       </button>
       <div id="pts-balance" style="font-size:13px;color:var(--muted);margin-bottom:8px;font-variant-numeric:tabular-nums"></div>
       <div class="streak-section" id="streak-display"></div>
@@ -1269,6 +1295,24 @@ footer{
     </div>
   </div>
 </div>
+
+<!-- ── LEADERBOARD ── -->
+<div class="page" id="page-leaderboard">
+<div class="inner">
+  <div class="ph">
+    <div class="ptitle">Leaderboard</div>
+  </div>
+  <div style="font-size:11px;color:var(--muted);margin-bottom:1.2rem">
+    Ranked by total points won across all resolved markets on Gen Markets.
+  </div>
+  <div class="panel" id="lb-wrap">
+    <div id="lb-rows">
+      <div style="font-size:12px;color:var(--muted)" id="lb-empty">Loading rankings…</div>
+    </div>
+  </div>
+</div>
+</div>
+
 
 <!-- FOOTER -->
 <footer>
@@ -1383,6 +1427,7 @@ function showPage(name) {
   window.scrollTo({top:0,behavior:'smooth'});
   if(name==='markets') { renderMarketsPage(); refreshChainData(); }
   if(name==='profile') renderProfile();
+  if(name==='leaderboard') renderLeaderboard();
 }
 
 // ════════════════════════════════════════════════════════
@@ -2118,7 +2163,7 @@ function marketCard(m, idx) {
   // ── First predictor CTA ────────────────────────────────────────
   const firstCTA = isFirst && S.connected ? `
     <div class="first-predictor">
-      <div class="first-predictor-title">🎯 Be the first to predict</div>
+      <div class="first-predictor-title">Be the first to predict</div>
       <div class="first-predictor-sub">Set the opening crowd odds</div>
     </div>` : '';
 
@@ -2150,12 +2195,12 @@ function marketCard(m, idx) {
       <div class="mc-badge"><div class="ms-dot ${statusDotCls}"></div>${statusLabel} · GenLayer Bradbury</div>
     </div>
     <div class="mc-q-center">${m.question}</div>
-    <div style="font-size:9px;color:var(--muted);text-align:center;margin-bottom:4px">📅 ${m.deadline||'—'}</div>
+    <div style="font-size:9px;color:var(--muted);text-align:center;margin-bottom:4px">${m.deadline||'—'}</div>
     ${m.status!=='EMPTY'&&m.status!=='LOADING'?probHero:''}
     ${m.status==='LOADING'?'<div style="font-size:10px;color:var(--muted);padding:8px 0;text-align:center">⟳ Loading…</div>':betRow}
     <div style="font-size:9px;color:var(--muted);margin-top:10px;display:flex;justify-content:space-between">
-      <span>🏦 ${totalPool} pts pool</span>
-      <span>👥 ${totalBets} predictions</span>
+      <span>${totalPool} pts pool</span>
+      <span>${totalBets} predictions</span>
     </div>
   </div>`;
 }
@@ -2197,8 +2242,8 @@ function updateDetailUI(idx) {
   const myBet     = userBets[idx];
 
   $('d-q').textContent = m.question || '—';
-  $('d-dl').textContent = m.deadline ? '📅 '+m.deadline : '';
-  $('d-meta').innerHTML = `<span>🗳 ${total} predictions</span><span>🏦 ${m.totalPool||0} pts pool</span>${m.addr?`<span>🔗 ${sh(m.addr)}</span>`:''}`;
+  $('d-dl').textContent = m.deadline ? m.deadline : '';
+  $('d-meta').innerHTML = `<span>${total} predictions</span><span>${m.totalPool||0} pts pool</span>${m.addr?`<span>${sh(m.addr)}</span>`:''}`;
   $('detail-title').textContent = `Market ${idx+1} of ${MARKETS.length}`;
 
   // ── Render outcome probability bars ──────────────────────────
@@ -2304,10 +2349,10 @@ async function resolveMarket() {
     await refreshSingleMarket(S.activeIdx);
     updateDetailUI(S.activeIdx);
     renderMarketsPage();
-    btn.innerHTML='⚖ Resolve Market — Owner Only'; btn.disabled=false;
+    btn.innerHTML='Resolve Market — Owner Only'; btn.disabled=false;
   }catch(e){
     toast(e.message,'err'); txLog(e.message,'err');
-    btn.disabled=false; btn.innerHTML='⚖ Resolve Market — Owner Only';
+    btn.disabled=false; btn.innerHTML='Resolve Market — Owner Only';
   }
 }
 
@@ -2473,7 +2518,7 @@ async function claimStarterPoints(){
     renderProfile();
   }catch(e){
     toast(e.message,'err'); txLog(e.message,'err');
-    btn.disabled=false; btn.textContent='🎁 CLAIM 1000 STARTER POINTS';
+    btn.disabled=false; btn.textContent='CLAIM 1000 STARTER POINTS';
   }
 }
 
@@ -2488,7 +2533,7 @@ async function refreshPointsBalance(){
       S.points = parseInt(bal)||0;
       S.hasClaimed = hasClaimed === 'True';
       const ptsEl=$('pts-balance');
-      if(ptsEl) ptsEl.textContent='🎯 '+S.points+' pts available';
+      if(ptsEl) ptsEl.textContent=S.points+' pts available';
       const claimBtn=$('btn-claim-pts');
       if(claimBtn) claimBtn.style.display = S.hasClaimed ? 'none' : 'block';
       const betBalEl=$('m-bet-bal');
@@ -2510,15 +2555,54 @@ async function refreshPointsBalance(){
       S.streaks = {predStreak, winStreak, maxPred, maxWin};
       const el = $('streak-display');
       if(el){
-        el.innerHTML = [
-          predStreak > 0 ? `<span class="streak-badge">🔥 ${predStreak}-day streak</span>` : '',
-          winStreak  > 0 ? `<span class="streak-badge streak-win">⚡ ${winStreak} win streak</span>` : '',
-          maxPred    > 1 ? `<span class="streak-badge" style="background:#555">📅 Best: ${maxPred} days</span>` : '',
-          maxWin     > 1 ? `<span class="streak-badge" style="background:#555">🏆 Best: ${maxWin} wins</span>` : '',
-        ].join('');
+        const badges = [
+          predStreak > 0 ? `<span class="streak-badge">${predStreak}-day streak</span>` : '',
+          winStreak  > 0 ? `<span class="streak-badge streak-win">${winStreak} win streak</span>` : '',
+          maxPred    > 1 ? `<span class="streak-badge" style="background:#555">Best streak: ${maxPred} days</span>` : '',
+          maxWin     > 1 ? `<span class="streak-badge" style="background:#555">Best run: ${maxWin} wins</span>` : '',
+        ].filter(Boolean).join('');
+        el.innerHTML = badges || `<span style="font-size:11px;color:var(--muted)">No streak yet — predict on consecutive days to start one</span>`;
       }
     }
   }catch{}
+}
+
+async function renderLeaderboard(){
+  const rows = $('lb-rows');
+  if(!rows) return;
+  rows.innerHTML = `<div style="font-size:12px;color:var(--muted)">Loading rankings\u2026</div>`;
+  try{
+    const LEADERBOARD_ADDR = window.LEADERBOARD_ADDR || '';
+    if(!LEADERBOARD_ADDR){
+      rows.innerHTML = `<div style="font-size:12px;color:var(--muted)">Leaderboard contract not configured.</div>`;
+      return;
+    }
+    const raw = await readContract(LEADERBOARD_ADDR,'get_top',[20]);
+    if(!raw || raw.trim()==='' || raw.includes('No predictions yet')){
+      rows.innerHTML = `<div style="font-size:12px;color:var(--muted)">No predictions recorded yet. Be the first to predict on Markets and climb the board.</div>`;
+      return;
+    }
+    const lines = raw.trim().split('\n').filter(Boolean);
+    rows.innerHTML = lines.map(line=>{
+      // format: "rank:addr_prefix:WwinsW/LlossesL:PTSpts"
+      const parts = line.split(':');
+      if(parts.length < 4) return '';
+      const rank = parts[0];
+      const addr = parts[1];
+      const record = parts[2];
+      const pts = parts[3].replace('pts','');
+      const rankCls = rank==='1'?'top1':rank==='2'?'top2':rank==='3'?'top3':'';
+      const isMe = S.account && S.account.toLowerCase().startsWith(addr.toLowerCase());
+      return `<div class="lb-row" style="${isMe?'border-color:var(--blue)':''}">
+        <div class="lb-rank ${rankCls}">#${rank}</div>
+        <div class="lb-addr">${addr}\u2026${isMe?' <span style="color:var(--blue);font-size:.7rem">(you)</span>':''}</div>
+        <div class="lb-record">${record}</div>
+        <div class="lb-pts">${pts} pts</div>
+      </div>`;
+    }).join('');
+  }catch(e){
+    rows.innerHTML = `<div style="font-size:12px;color:var(--muted)">Could not load leaderboard: ${e.message}</div>`;
+  }
 }
 
 async function claimWinnings(){
@@ -2551,7 +2635,7 @@ async function claimWinnings(){
   }catch(e){
     toast(e.message,'err'); txLog(e.message,'err');
   } finally {
-    btn.textContent = '🏆 Claim Winnings'; btn.disabled = false;
+    btn.textContent = 'Claim Winnings'; btn.disabled = false;
   }
 }
 
@@ -2583,7 +2667,7 @@ async function refreshAiOdds(idx){
   }catch(e){
     toast(e.message,'err');txLog(e.message,'err');
   }finally{
-    if(btn){btn.disabled=false;btn.textContent='🔄 REFRESH AI ODDS';}
+    if(btn){btn.disabled=false;btn.textContent='REFRESH AI ODDS';}
   }
 }
 
