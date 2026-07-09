@@ -44,14 +44,38 @@ export default function Profile({ account, connected, genBal, username, markets,
     } catch(e) {}
   }
 
+  const [claimingId, setClaimingId] = useState(null)
+
   const claimWinnings = async (betId) => {
+    setClaimingId(betId)
     try {
       await writeContract(CONTRACT, account, 'claim_winnings', [parseInt(betId)])
       notify('Claiming…', 'ok')
-      await new Promise(r => setTimeout(r, 6000))
+
+      // Poll for the real state change instead of a blind timeout —
+      // a fixed 6s wait left the Claim button clickable again if the
+      // real confirmation took longer, letting the same bet be "claimed"
+      // repeatedly since the contract still reported WON, not CLAIMED yet.
+      let confirmed = false
+      const start = Date.now()
+      while (Date.now() - start < 60000 && !confirmed) {
+        await new Promise(r => setTimeout(r, 4000))
+        try {
+          const raw = await readContract(CONTRACT, 'get_my_bets_all', [account])
+          const list = raw ? JSON.parse(raw) : []
+          const b = Array.isArray(list) ? list.find(x => x.id === parseInt(betId)) : null
+          if (b && b.status === 'CLAIMED') confirmed = true
+        } catch(e) {}
+      }
+
       await loadBets()
-      notify('Winnings claimed — allow ~30 min for finality to fully reflect in your wallet', 'ok')
+      if (confirmed) {
+        notify('Winnings claimed — allow ~30 min for finality to fully reflect in your wallet', 'ok')
+      } else {
+        notify('Still confirming — refresh in a moment to see the updated status', 'ok')
+      }
     } catch(e) { notify(e.message, 'err') }
+    finally { setClaimingId(null) }
   }
 
   if (!connected) {
@@ -182,9 +206,17 @@ export default function Profile({ account, connected, genBal, username, markets,
                   {b.outcome} · {((Number(b.amount)||0)/1e18).toFixed(4).replace(/\.?0+$/,'')||'0'} GEN
                 </span>
                 {b.status === 'WON' && (
-                  <button onClick={() => claimWinnings(b.id)} className="btn btn-xs" style={{background:'var(--green-dim)',border:'1px solid rgba(5,150,105,.25)',color:'var(--green)',flexShrink:0}}>
-                    Claim
+                  <button
+                    onClick={() => claimWinnings(b.id)}
+                    disabled={claimingId === b.id}
+                    className="btn btn-xs"
+                    style={{background:'var(--green-dim)',border:'1px solid rgba(5,150,105,.25)',color:'var(--green)',flexShrink:0,opacity:claimingId===b.id?.6:1,cursor:claimingId===b.id?'default':'pointer'}}
+                  >
+                    {claimingId === b.id ? 'Confirming…' : 'Claim'}
                   </button>
+                )}
+                {b.status === 'CLAIMED' && (
+                  <span style={{fontSize:11,color:'var(--muted)',fontFamily:'var(--mono)',flexShrink:0}}>✓ Claimed</span>
                 )}
               </div>
             )
