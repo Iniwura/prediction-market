@@ -6,6 +6,7 @@ import { CONTRACT, fmt } from '../lib/config.js'
 export default function Markets({ account, connected, markets, myBets, genBal, notify, loadMarkets, isOwner }) {
   const [betModal,    setBetModal]    = useState(null)
   const [createModal, setCreateModal] = useState(false)
+  const [creatingMarket, setCreatingMarket] = useState(false)
   const [txOpen,      setTxOpen]      = useState(false)
   const [txLogs,      setTxLogs]      = useState([])
   const [betAmt,      setBetAmt]      = useState(1)
@@ -117,6 +118,7 @@ export default function Markets({ account, connected, markets, myBets, genBal, n
     // already hidden from non-owners, but guard here too in case state
     // is stale (e.g. owner address loaded after the modal was opened).
     if (!isOwner) { notify('Only the contract owner can create manual markets','err'); return }
+    setCreatingMarket(true)
     notify('Creating market…','ok')
     try {
       const beforeRaw = await readContract(CONTRACT, 'get_market_count', [])
@@ -151,6 +153,7 @@ export default function Markets({ account, connected, markets, myBets, genBal, n
         setCreateModal(false)
       }
     } catch(e) { notify(e.message,'err'); addTx(e.message,'err') }
+    finally { setCreatingMarket(false) }
   }
 
   const createScheduled = async (type) => {
@@ -343,17 +346,18 @@ export default function Markets({ account, connected, markets, myBets, genBal, n
         </div>
       )}
 
-      {createModal && <CreateModal onCreate={createMarket} onClose={()=>setCreateModal(false)}/>}
+      {createModal && <CreateModal onCreate={createMarket} onClose={()=>setCreateModal(false)} creating={creatingMarket}/>}
     </div>
   )
 }
 
-function CreateModal({ onCreate, onClose }) {
+function CreateModal({ onCreate, onClose, creating }) {
   const [q,   setQ]   = useState('')
   const [o,   setO]   = useState('YES,NO')
   const [url, setUrl] = useState('')
   const [dl,  setDl]  = useState('24 hours from now')
   const [err, setErr] = useState('')
+  const [stage, setStage] = useState(0)
 
   const feeDisplay = '0.50'
 
@@ -376,13 +380,41 @@ function CreateModal({ onCreate, onClose }) {
     if (!q.trim())   { setErr('Question is required'); return }
     if (!url.trim()) { setErr('Evidence URL is required — the AI needs somewhere to look when resolving'); return }
     if (!url.startsWith('http')) { setErr('Evidence URL must start with https://'); return }
+    const match = dl.toLowerCase().match(/(\d+)\s*(min|hour|hr|day|week|wk|month|mo)/)
+    if (match && parseInt(match[1]) < 1) { setErr('Deadline must be at least 1 minute from now'); return }
     setErr('')
     onCreate(q, o, url, toAbsoluteDeadline(dl))
   }
 
+  useEffect(() => {
+    if (!creating) { setStage(0); return }
+    const stages = [
+      'Submitting to GenLayer…',
+      'Validators reaching consensus…',
+      'AI setting opening odds…',
+      'Almost there…',
+    ]
+    let i = 0
+    const id = setInterval(() => { i = Math.min(i + 1, stages.length - 1); setStage(i) }, 15000)
+    return () => clearInterval(id)
+  }, [creating])
+
+  const stageLabels = ['Submitting to GenLayer…','Validators reaching consensus…','AI setting opening odds…','Almost there…']
+
   return (
-    <div className="mbg show" onClick={e=>e.target===e.currentTarget&&onClose()}>
+    <div className="mbg show" onClick={e=>e.target===e.currentTarget && !creating && onClose()}>
       <div className="mbox">
+        {creating ? (
+          <div style={{padding:'32px 8px',textAlign:'center'}}>
+            <div className="spin-ring spin-ring-lg" style={{margin:'0 auto 20px'}}/>
+            <div style={{fontSize:15,fontWeight:700,color:'var(--text)',marginBottom:6}}>Creating market</div>
+            <div style={{fontSize:12.5,color:'var(--text3)',fontFamily:'var(--mono)'}}>{stageLabels[stage]}</div>
+            <div style={{fontSize:10.5,color:'var(--muted)',marginTop:14,lineHeight:1.6}}>
+              This can take up to 3 minutes — AI consensus across validators takes time.<br/>Please don't close this window.
+            </div>
+          </div>
+        ) : (
+        <>
         <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:20}}>
           <div className="mbox-title" style={{marginBottom:0}}>Create Market</div>
           <button onClick={onClose} style={{background:'none',border:'none',color:'var(--muted)',fontSize:18,cursor:'pointer'}}>✕</button>
@@ -422,6 +454,8 @@ function CreateModal({ onCreate, onClose }) {
           <button className="btn btn-outline" onClick={onClose} style={{flex:1}}>Cancel</button>
           <button className="btn btn-primary" onClick={submit} style={{flex:2}}>Create on GenLayer</button>
         </div>
+        </>
+        )}
       </div>
     </div>
   )
