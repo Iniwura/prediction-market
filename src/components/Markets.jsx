@@ -3,7 +3,7 @@ import MarketCard from './MarketCard.jsx'
 import { writeContract, readContract, pollForChange } from '../lib/gl.js'
 import { CONTRACT, EXPLORER } from '../lib/config.js'
 
-export default function Markets({ account, connected, markets, myBets, genBal, notify, loadMarkets, isOwner }) {
+export default function Markets({ account, connected, markets, myBets, genBal, notify, loadMarkets, isOwner, canManage }) {
   const [betModal,    setBetModal]    = useState(null)
   const [createModal, setCreateModal] = useState(false)
   const [creatingMarket, setCreatingMarket] = useState(false)
@@ -244,7 +244,7 @@ export default function Markets({ account, connected, markets, myBets, genBal, n
   }
 
   const cancelMarket = async (id) => {
-    if (!isOwner || busy[id]) return
+    if (!canManage || busy[id]) return
     const current = markets.find(x => x.id === id)
     const marketLabel = shortQ(current?.question, id)
     setBusy(b => ({...b, [id]: true}))
@@ -384,7 +384,7 @@ export default function Markets({ account, connected, markets, myBets, genBal, n
         ) : visible.map(m => (
           <MarketCard
             key={m.id} m={m} myBet={myBets[m.id]}
-            connected={connected} isOwner={isOwner}
+            connected={connected} canManage={canManage}
             resolving={!!busy[m.id]} cancelling={!!busy[m.id]} refunding={!!refundBusy[m.id]}
             refreshingOdds={!!refreshBusy[m.id]}
             onBet={openBet} onResolve={resolveMarket} onCancel={cancelMarket} onRefund={refundBet}

@@ -1,0 +1,11 @@
+{
+  "name": "gen-markets-resolve-bot",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "resolve": "node resolve-bot.js"
+  },
+  "dependencies": {
+    "genlayer-js": "^1.1.8"
+  }
+}

@@ -34,7 +34,7 @@ function timeAgo(ts) {
   return Math.floor(s/86400) + 'd ago'
 }
 
-export default function Header({ account, connected, genBal, theme, onThemeToggle, onConnect, onDisconnect, page, onNav, notifLog=[], onMarkNotifsRead }) {
+export default function Header({ account, connected, genBal, theme, onThemeToggle, onConnect, onDisconnect, page, onNav, notifLog=[], onMarkNotifsRead, isOwner }) {
   const [menuOpen,  setMenuOpen]  = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
   const notifRef = useRef(null)
@@ -42,6 +42,7 @@ export default function Header({ account, connected, genBal, theme, onThemeToggl
   const pages = [
     {key:'home',label:'Home'},{key:'markets',label:'Markets'},
     {key:'games',label:'Games'},{key:'leaderboard',label:'Rankings'},{key:'profile',label:'Profile'},
+    ...(isOwner ? [{key:'admin',label:'Admin'}] : []),
   ]
   const go = (key) => { onNav(key); setMenuOpen(false) }
   const unread = notifLog.filter(n => !n.read).length

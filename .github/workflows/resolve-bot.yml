@@ -1,0 +1,28 @@
+name: Resolve expired markets
+
+on:
+  schedule:
+    # Every 10 minutes. GitHub's scheduler is best-effort, not exact to
+    # the minute, and can lag under load, that's fine for this use case.
+    - cron: '*/10 * * * *'
+  workflow_dispatch: {}   # lets you trigger a run manually from the Actions tab
+
+jobs:
+  resolve:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: bot
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm install
+
+      - run: npm run resolve
+        env:
+          BOT_PRIVATE_KEY: ${{ secrets.BOT_PRIVATE_KEY }}
+          CONTRACT_ADDRESS: ${{ secrets.CONTRACT_ADDRESS }}

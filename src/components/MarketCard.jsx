@@ -51,7 +51,7 @@ function isDeadlinePassed(raw) {
   return Date.now() > t
 }
 
-export default function MarketCard({ m, myBet, connected, isOwner, onBet, onResolve, onCancel, onRefund, onRefreshOdds, resolving, cancelling, refunding, refreshingOdds }) {
+export default function MarketCard({ m, myBet, connected, canManage, onBet, onResolve, onCancel, onRefund, onRefreshOdds, resolving, cancelling, refunding, refreshingOdds }) {
   const isOpen = m.status === 'OPEN'
   const isRes  = m.status === 'RESOLVED'
   const isCanc = m.status === 'CANCELLED'
@@ -184,7 +184,7 @@ export default function MarketCard({ m, myBet, connected, isOwner, onBet, onReso
               {refreshingOdds ? '↻ Refreshing…' : '↻ Refresh odds'}
             </button>
           )}
-          {isOpen && isOwner && !confirmCancel && (
+          {isOpen && canManage && !confirmCancel && (
             <div className="mcard-menu-wrap" ref={menuRef}>
               <button className="mcard-menu-btn" onClick={() => setMenuOpen(o=>!o)} title="More">⋮</button>
               {menuOpen && (
@@ -206,7 +206,7 @@ export default function MarketCard({ m, myBet, connected, isOwner, onBet, onReso
               )}
             </div>
           )}
-          {isOpen && isOwner && confirmCancel && <>
+          {isOpen && canManage && confirmCancel && <>
             <span style={{fontSize:10,color:'var(--muted)'}}>Sure?</span>
             <button className="resolve-btn" disabled={cancelling} style={{borderColor:'rgba(244,63,94,.3)',color:'var(--red)',background:'var(--red-dim)'}} onClick={() => { onCancel(m.id); setConfirmCancel(false) }}>
               {cancelling ? 'Cancelling…' : 'Yes, cancel'}

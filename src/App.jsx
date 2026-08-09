@@ -6,6 +6,7 @@ import Markets from './components/Markets.jsx'
 import Games from './components/Games.jsx'
 import Leaderboard from './components/Leaderboard.jsx'
 import Profile from './components/Profile.jsx'
+import Admin from './components/Admin.jsx'
 import { readContract, writeContract } from './lib/gl.js'
 import { CONTRACT, CHAIN_ID, NET_CFG } from './lib/config.js'
 
@@ -64,6 +65,7 @@ export default function App() {
   const [markets,   setMarkets]   = useState([])
   const [myBets,    setMyBets]    = useState({})
   const [owner,     setOwner]     = useState('')
+  const [admins,    setAdmins]    = useState([])
   const [toast,     setToast]     = useState({ msg: '', type: 'ok' })
   const [notifLog,  setNotifLog]  = useState(loadNotifLog)
 
@@ -116,12 +118,21 @@ export default function App() {
     }
   }, [account])
 
-  // Initial load (no wallet needed for markets or owner, both are view calls)
+  // Initial load (no wallet needed for markets, owner, or admins, all view calls)
+  const loadAdmins = useCallback(async () => {
+    try {
+      const raw = await readContract(CONTRACT, 'get_admins', [])
+      const list = raw ? JSON.parse(raw) : []
+      setAdmins(Array.isArray(list) ? list.map(a => String(a).toLowerCase()) : [])
+    } catch (e) {}
+  }, [])
+
   useEffect(() => {
     loadMarkets('')
     readContract(CONTRACT, 'get_owner', []).then(raw => {
       if (raw) setOwner(String(raw).toLowerCase().trim())
     }).catch(() => {})
+    loadAdmins()
   }, [])
 
   // Auto-reconnect
@@ -193,6 +204,9 @@ export default function App() {
     onConnect: connect,
     goTo: setPage,
     isOwner: connected && account && owner && account.toLowerCase() === owner,
+    isAdmin: connected && account && admins.includes(account.toLowerCase()),
+    canManage: connected && account && (account.toLowerCase() === owner || admins.includes(account.toLowerCase())),
+    admins, loadAdmins,
   }
 
   return (
@@ -205,6 +219,7 @@ export default function App() {
           onConnect={connect} onDisconnect={disconnect}
           page={page} onNav={setPage}
           notifLog={notifLog} onMarkNotifsRead={markNotifsRead}
+          isOwner={sharedProps.isOwner}
         />
 
         {page === 'home'        && <Home        {...sharedProps} />}
@@ -212,6 +227,7 @@ export default function App() {
         {page === 'games'       && <Games       {...sharedProps} />}
         {page === 'leaderboard' && <Leaderboard {...sharedProps} />}
         {page === 'profile'     && <Profile     {...sharedProps} />}
+        {page === 'admin' && sharedProps.isOwner && <Admin {...sharedProps} />}
 
         <Toast message={toast.msg} type={toast.type} onClear={() => setToast({ msg: '', type: 'ok' })} />
       </div>

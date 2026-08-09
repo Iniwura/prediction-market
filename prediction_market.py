@@ -23,6 +23,7 @@ def _gen(wei: int) -> str:
 class PredictionMarket(gl.Contract):
 
     owner:            str
+    admins:           TreeMap[str, str]
     market_count:     u64
     game_nonce:       u64
     markets:        TreeMap[str, str]
@@ -40,6 +41,13 @@ class PredictionMarket(gl.Contract):
 
     def _addr(self) -> str:
         return str(gl.message.sender_address).lower().strip()
+
+    # Owner is a separate, permanent role, never just "first admin". Owner
+    # can always manage the admin list regardless of its contents, and
+    # can't be removed via admin_remove (checked there, not here).
+    def _is_admin_or_owner(self, addr: str) -> bool:
+        a = addr.lower().strip()
+        return a == self.owner or a in self.admins
 
     def _now(self) -> int:
         try:
@@ -779,8 +787,8 @@ class PredictionMarket(gl.Contract):
 
     @gl.public.write
     def resolve_market(self, market_id: int):
-        if self._addr() != self.owner.lower():
-            raise gl.vm.UserError("Only owner can resolve markets")
+        if not self._is_admin_or_owner(self._addr()):
+            raise gl.vm.UserError("Only owner or an admin can resolve markets")
         m = self._get_market(market_id)
         if m["status"] != "OPEN":
             raise gl.vm.UserError("Cannot resolve: " + m["status"])
@@ -890,8 +898,8 @@ class PredictionMarket(gl.Contract):
     @gl.public.write
     def cancel_market(self, market_id: int):
         caller = self._addr()
-        if caller != self.owner.lower():
-            raise gl.vm.UserError("Only owner can cancel")
+        if not self._is_admin_or_owner(caller):
+            raise gl.vm.UserError("Only owner or an admin can cancel")
         m = self._get_market(market_id)
         if m["status"] not in ("OPEN", "PENDING"):
             raise gl.vm.UserError("Cannot cancel: " + m["status"])
@@ -917,6 +925,32 @@ class PredictionMarket(gl.Contract):
         if bal == 0:
             raise gl.vm.UserError("Nothing to withdraw, contract balance is 0")
         _Recipient(Address(self.owner)).emit_transfer(value=bal)
+
+    # Admins can resolve, cancel, and manage markets alongside the owner,
+    # but never touch fund custody (withdraw stays owner-only above) and
+    # can never grant admin access themselves, only the owner can.
+    @gl.public.write
+    def admin_add(self, address: str):
+        if self._addr() != self.owner.lower():
+            raise gl.vm.UserError("Only owner can add admins")
+        a = address.lower().strip()
+        if not a.startswith("0x") or len(a) != 42:
+            raise gl.vm.UserError("Not a valid address")
+        if a == self.owner:
+            raise gl.vm.UserError("Owner already has full access, no need to add as admin")
+        self.admins[a] = "1"
+
+    @gl.public.write
+    def admin_remove(self, address: str):
+        if self._addr() != self.owner.lower():
+            raise gl.vm.UserError("Only owner can remove admins")
+        a = address.lower().strip()
+        if a in self.admins:
+            del self.admins[a]
+
+    @gl.public.view
+    def get_admins(self) -> str:
+        return json.dumps(list(self.admins.keys()))
 
     @gl.public.write.payable
     def play_coinflip(self, side: str) -> str:

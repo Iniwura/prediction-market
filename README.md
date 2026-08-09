@@ -56,7 +56,7 @@ React + Vite (Vercel)
         | genlayer-js SDK (real GEN value transfers)
         |
 GenLayer Bradbury Testnet
-  Contract    0x36584c3D7B1C382DF1A240d18AA61759F15a0B86
+  Contract    0x4c6a92E2B3BC91330018D242A011FB55827B7C02
   RPC         https://rpc-bradbury.genlayer.com
   Explorer    https://explorer-bradbury.genlayer.com
 ```
@@ -77,7 +77,7 @@ The current time is fetched from a time API inside the resolve prompt so the AI 
 
 ## Contract
 
-**Address:** `0x36584c3D7B1C382DF1A240d18AA61759F15a0B86`
+**Address:** `0x4c6a92E2B3BC91330018D242A011FB55827B7C02`
 **Network:** GenLayer Bradbury Testnet
 **Language:** Python Intelligent Contract (GenLayer GenVM)
 **Source:** [`prediction_market.py`](./prediction_market.py)
