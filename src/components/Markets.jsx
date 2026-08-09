@@ -3,7 +3,7 @@ import MarketCard from './MarketCard.jsx'
 import { writeContract, readContract, pollForChange } from '../lib/gl.js'
 import { CONTRACT, EXPLORER } from '../lib/config.js'
 
-export default function Markets({ account, connected, markets, myBets, genBal, notify, loadMarkets, isOwner, canManage }) {
+export default function Markets({ account, connected, markets, myBets, genBal, notify, loadMarkets, canManage }) {
   const [betModal,    setBetModal]    = useState(null)
   const [txOpen,      setTxOpen]      = useState(false)
   const [txLogs,      setTxLogs]      = useState([])

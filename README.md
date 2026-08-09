@@ -23,13 +23,31 @@ Gen Markets is a prediction market platform running on GenLayer Bradbury. The AI
 ## Features
 
 **Prediction Markets**
-- Anyone can create a market for a fixed 0.5 GEN fee, paid to the contract
+- Manual market creation and daily/weekly/monthly auto-generation live in the owner-only Admin tab
+- 0.5 GEN fee on manual creation, paid to the contract; auto-generated markets are free
 - AI sets opening probabilities inside the same transaction as market creation
-- Auto-generate daily, weekly, and monthly markets on crypto/DeFi topics, no cooldown
+- A background bot keeps one open daily/weekly/monthly market running at all times, no manual trigger needed
 - Place predictions with real GEN as the stake
 - AI evaluates evidence and resolves markets through GenLayer validator consensus
-- Resolution is owner-only; cancellation and refunds are owner-only and bettor-only respectively
+- Resolution and cancellation are owner-or-admin; refunds are bettor-only
 - Cancelled markets return the original GEN stake to each bettor
+
+**Multi-Admin Access**
+- Owner is a permanent, separate role, always able to manage the admin list
+- Owner can add or remove admin wallets from the Admin tab
+- Admins can resolve, cancel, and create markets alongside the owner
+- Admins never touch contract funds, `withdraw()` stays owner-only regardless of admin status
+
+**Autonomous Resolve Bot**
+- A dedicated gas-funded wallet, added as an admin, runs on a GitHub Actions schedule (`bot/resolve-bot.js`)
+- Every run: resolves any market past its deadline, then tops up any schedule type (daily/weekly/monthly) that doesn't currently have an open market
+- Self-healing, the moment a scheduled market resolves, the next run creates its replacement, no manual intervention
+- Fully separable credentials, the bot's private key lives only in GitHub Actions secrets, never in the repo
+
+**Personalized Notifications**
+- The bell dropdown surfaces your actual bet outcomes, not a log of every action in the app
+- Shows: bet won (claim available), bet lost, market awaiting resolution, market cancelled (refund available)
+- Items are derived live from on-chain state and disappear once claimed, not a growing history
 
 **Quick Games**
 - Coin Flip: call heads or tails, win 2x your stake
@@ -71,7 +89,7 @@ Sending GEN out of the contract uses `_Recipient`/`@gl.evm.contract_interface`, 
 
 Each write function has at most one `gl.eq_principle` call. Nesting consensus calls causes GenVM `exit_code 1`. Functions passed to `prompt_non_comparative` capture exactly one pre-built string; multi-variable closures also cause `exit_code 1`.
 
-The current time is fetched from a time API inside the resolve prompt so the AI has an unambiguous reference to compare against a market's deadline, rather than guessing from evidence-page timestamps alone.
+`resolve_market` is owner-or-admin gated with no on-chain clock check at all. The caller has already decided the deadline passed before triggering it, so the AI referee prompt is told explicitly not to reason about timing, just to read the evidence and decide the outcome. An earlier version tried fetching a live time API from inside the resolve prompt for an unambiguous "now" reference; that added an extra unreliable network call for no real benefit once the function was already access-controlled, and was removed.
 
 ---
 
@@ -91,17 +109,21 @@ The current time is fetched from a time API inside the resolve prompt so the AI 
 | `create_weekly_market(deadline_note)` | Anyone | AI generates weekly question and odds |
 | `create_monthly_market(deadline_note)` | Anyone | AI generates monthly macro question and odds |
 | `place_bet(market_id, outcome)` | Anyone, payable | Place a prediction, GEN sent as tx value |
-| `resolve_market(market_id)` | Owner only | AI evaluates the market and sets the winner |
+| `resolve_market(market_id)` | Owner or admin | AI evaluates the market and sets the winner |
 | `claim_winnings(market_id)` | Bettor | Claim GEN payout on a won prediction |
-| `cancel_market(market_id)` | Owner | Cancel a market |
+| `cancel_market(market_id)` | Owner or admin | Cancel a market |
 | `refund(market_id)` | Bettor | Claim GEN refund on a cancelled market |
+| `refresh_odds(market_id)` | Anyone | Re-run AI odds using live evidence, existing bets untouched |
+| `admin_add(address)` | Owner only | Grant an address resolve/cancel/create access |
+| `admin_remove(address)` | Owner only | Revoke an address's admin access |
+| `get_admins()` | View | List current admin addresses |
 | `play_coinflip(side)` | Anyone, payable | Coin flip game |
 | `play_dice(direction, target)` | Anyone, payable | Dice roll game |
 | `play_rps(choice)` | Anyone, payable | Rock Paper Scissors |
 | `set_username(name)` | Anyone | Claim an on-chain username |
 | `send_gen(recipient)` | Anyone, payable | Send GEN to an address or username |
 | `fund()` | Anyone, payable | Add GEN to the house bankroll |
-| `withdraw()` | Owner only | Withdraw the full contract GEN balance |
+| `withdraw()` | Owner only | Withdraw the full contract GEN balance, never available to admins |
 
 ### AI methods
 
@@ -127,8 +149,6 @@ The current time is fetched from a time API inside the resolve prompt so the AI 
 
 ```
 gm/
-├── api/
-│   └── rpc.js                 # Vercel serverless RPC proxy
 ├── src/
 │   ├── lib/
 │   │   ├── config.js          # Contract address, chain config, helpers
@@ -136,17 +156,22 @@ gm/
 │   ├── components/
 │   │   ├── Header.jsx         # Nav, wallet pill, notification bell, theme toggle
 │   │   ├── Home.jsx           # Hero, live stats ticker
-│   │   ├── Markets.jsx        # Market list, bet/create modals, resolve/cancel
+│   │   ├── Markets.jsx        # Market list, betting, resolve/cancel actions
 │   │   ├── MarketCard.jsx     # Market card with outcomes and probabilities
+│   │   ├── Admin.jsx          # Owner-only: market creation, admin list management
 │   │   ├── Games.jsx          # Coin flip, dice, RPS with continuous animations
 │   │   ├── Leaderboard.jsx    # XP rankings with win rate
-│   │   ├── Profile.jsx        # Stats, bet history, send GEN, username
+│   │   ├── Profile.jsx        # Stats, bet history, claim/refund, send GEN, username
 │   │   ├── Toast.jsx          # Notification toasts
 │   │   └── Ticker.jsx         # Scrolling stats bar
 │   ├── App.jsx                # Wallet connection, state, routing
 │   ├── ErrorBoundary.jsx      # Catches render crashes, shows recoverable screen
 │   ├── index.css              # Design system
 │   └── main.jsx
+├── bot/
+│   └── resolve-bot.js         # Autonomous resolver, run by GitHub Actions on a schedule
+├── .github/workflows/
+│   └── resolve-bot.yml        # Cron trigger for the resolve bot
 ├── prediction_market.py       # Intelligent Contract source
 ├── vercel.json
 └── vite.config.js
@@ -187,7 +212,23 @@ Get testnet GEN from the [GenLayer faucet](https://testnet-faucet.genlayer.found
 
 ## Deployment
 
-Push to `main` and Vercel deploys automatically. The `api/rpc.js` serverless function proxies RPC calls server-side to avoid CORS issues with the public GenLayer endpoint.
+Push to `main` and Vercel deploys automatically. The frontend talks to GenLayer's public RPC endpoint directly via `genlayer-js`, no server-side proxy involved.
+
+---
+
+## Autonomous resolve bot
+
+`bot/resolve-bot.js` runs on a GitHub Actions schedule (every 10 minutes, see `.github/workflows/resolve-bot.yml`), signed by a dedicated wallet added as a contract admin via `admin_add`. Each run it resolves any market past its deadline, then creates a fresh daily/weekly/monthly market for any schedule type that doesn't currently have one open. It never calls `withdraw()` and holds no owner privileges, only what `admin_add` grants.
+
+To run it yourself:
+
+```bash
+cd bot
+npm install
+BOT_PRIVATE_KEY=0x... CONTRACT_ADDRESS=0x... npm run resolve
+```
+
+In production the two env vars are GitHub repository secrets (`BOT_PRIVATE_KEY`, `CONTRACT_ADDRESS`), never committed to the repo.
 
 ---
 
