@@ -17,7 +17,6 @@ export default function Markets({ account, connected, markets, myBets, genBal, n
   const [typeFilter,  setTypeFilter]  = useState('all')
   const [catFilter,   setCatFilter]   = useState('all')
   const [sortBy,       setSortBy]     = useState('closing')
-  const [search,        setSearch]    = useState('')
   const [schedBusy,   setSchedBusy]   = useState({})
 
 
@@ -305,7 +304,6 @@ export default function Markets({ account, connected, markets, myBets, genBal, n
   const visible = (showSettled ? markets : markets.filter(m => m.status === 'OPEN'))
     .filter(m => typeFilter === 'all' || m.schedule_type === typeFilter)
     .filter(m => catFilter  === 'all' || m.category === catFilter)
-    .filter(m => !search.trim() || (m.question||'').toLowerCase().includes(search.trim().toLowerCase()))
     .slice()
     .sort((a, b) => {
       if (sortBy === 'closing') {
@@ -347,13 +345,6 @@ export default function Markets({ account, connected, markets, myBets, genBal, n
       </div>
 
       <div className="filter-toolbar">
-        <input
-          className="market-search"
-          type="text"
-          placeholder="⌕ Search markets…"
-          value={search}
-          onChange={e=>setSearch(e.target.value)}
-        />
         <div className="filter-toolbar-row">
           <span className="sched-lbl">Type</span>
           {['all','daily','weekly','monthly','manual'].map(t => (
@@ -387,8 +378,8 @@ export default function Markets({ account, connected, markets, myBets, genBal, n
       <div className="mgrid">
         {visible.length === 0 ? (
           <div style={{gridColumn:'1/-1'}} className="empty">
-            <div className="empty-title">{markets.length === 0 ? 'No markets yet' : (typeFilter!=='all'||catFilter!=='all'||search.trim()) ? 'No markets match these filters' : 'No open markets'}</div>
-            <div className="empty-sub">{markets.length === 0 ? 'Use Auto-Generate above to create one' : (typeFilter!=='all'||catFilter!=='all'||search.trim()) ? 'Try a different search term or filter above' : settled.length > 0 ? 'All markets have settled, click Show Settled to browse them' : ''}</div>
+            <div className="empty-title">{markets.length === 0 ? 'No markets yet' : (typeFilter!=='all'||catFilter!=='all') ? 'No markets match these filters' : 'No open markets'}</div>
+            <div className="empty-sub">{markets.length === 0 ? 'Use Auto-Generate above to create one' : (typeFilter!=='all'||catFilter!=='all') ? 'Try a different filter above' : settled.length > 0 ? 'All markets have settled, click Show Settled to browse them' : ''}</div>
           </div>
         ) : visible.map(m => (
           <MarketCard
