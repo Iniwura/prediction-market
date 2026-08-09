@@ -1,17 +1,29 @@
-// Gen Markets resolve-bot.
+// Gen Markets resolve-and-schedule bot.
 //
-// Reads every market, finds any that are still OPEN with a deadline that
-// has already passed, and calls resolve_market on a small batch of them.
+// Two jobs, each run:
+//   1. Resolve any OPEN market whose deadline has passed.
+//   2. Keep exactly one OPEN market running per schedule type (daily,
+//      weekly, monthly) — if a type has no OPEN market right now, create
+//      one. This self-heals: the moment job 1 resolves an expired daily
+//      market, the next run sees no OPEN daily market and creates the
+//      next one. No clock math needed, since GenVM's on-chain timestamp
+//      isn't reliable (see genlayer-intelligent-contracts skill notes),
+//      "is one currently OPEN" is checked directly instead of inferred
+//      from a creation timestamp.
+//
 // The wallet running this must already be added as an admin via
-// admin_add (owner-only) — resolve_market checks owner-or-admin on-chain,
-// this script does not bypass that, it just holds admin credentials.
+// admin_add (owner-only) for job 1 — resolve_market checks owner-or-admin
+// on-chain, this script does not bypass that. Job 2's create_*_market
+// functions are public with no fee, admin isn't required for those, the
+// bot just happens to already have it.
 //
 // Env vars required:
 //   BOT_PRIVATE_KEY     private key of the admin wallet, gas-funded only
 //   CONTRACT_ADDRESS    deployed PredictionMarket contract address
 //
-// Intentionally narrow: this script only ever calls resolve_market. It
-// does not refresh odds, create markets, or touch funds in any way.
+// Intentionally narrow beyond that: this script only ever calls
+// resolve_market and create_*_market. It never touches funds, never
+// calls withdraw, never manages the admin list.
 
 import { createClient, createAccount } from 'genlayer-js'
 import { testnetBradbury } from 'genlayer-js/chains'
@@ -19,6 +31,9 @@ import { testnetBradbury } from 'genlayer-js/chains'
 const CONTRACT     = process.env.CONTRACT_ADDRESS
 const PRIVATE_KEY  = process.env.BOT_PRIVATE_KEY
 const MAX_PER_RUN  = 2   // throttled on purpose, see design notes below
+
+const SCHEDULE_TYPES = ['daily', 'weekly', 'monthly']
+const SCHEDULE_MS    = { daily: 86400000, weekly: 86400000 * 7, monthly: 86400000 * 30 }
 
 if (!CONTRACT || !PRIVATE_KEY) {
   console.error('Missing required env var: CONTRACT_ADDRESS or BOT_PRIVATE_KEY')
@@ -39,25 +54,20 @@ function isDeadlinePassed(raw) {
   return Date.now() > t
 }
 
-async function main() {
-  console.log(`[${new Date().toISOString()}] resolve-bot starting, contract ${CONTRACT}`)
-
+async function getMarkets() {
   const raw = await client.readContract({
     address: CONTRACT,
     functionName: 'get_all_markets',
     args: [],
     transactionHashVariant: 'latest-nonfinal',
   })
-
   const markets = (!raw || raw === 'NO_MARKETS') ? [] : JSON.parse(raw)
-  if (!Array.isArray(markets) || markets.length === 0) {
-    console.log('No markets found, nothing to do')
-    return
-  }
+  return Array.isArray(markets) ? markets : []
+}
 
+async function resolveExpired(markets) {
   const expired = markets.filter(m => m.status === 'OPEN' && isDeadlinePassed(m.deadline))
   console.log(`${markets.length} total markets, ${expired.length} OPEN and past deadline`)
-
   if (expired.length === 0) return
 
   // One or two per run, not the whole backlog at once. A bug in a single
@@ -84,6 +94,48 @@ async function main() {
       console.log(`  resolve failed for #${m.id}: ${e.message || e}`)
     }
   }
+}
+
+async function keepScheduledMarketsRunning(markets) {
+  for (const type of SCHEDULE_TYPES) {
+    const hasOpen = markets.some(m => m.schedule_type === type && m.status === 'OPEN')
+    if (hasOpen) {
+      console.log(`${type}: an OPEN market already exists, skipping`)
+      continue
+    }
+
+    const deadlineStr    = new Date(Date.now() + SCHEDULE_MS[type]).toUTCString()
+    const currentDateStr = new Date().toUTCString()
+    console.log(`${type}: no OPEN market, creating one`)
+    try {
+      const hash = await client.writeContract({
+        address: CONTRACT,
+        functionName: `create_${type}_market`,
+        args: [deadlineStr, currentDateStr],
+        value: 0n,
+      })
+      console.log(`  submitted: ${hash}`)
+    } catch (e) {
+      console.log(`  create_${type}_market failed: ${e.message || e}`)
+    }
+  }
+}
+
+async function main() {
+  console.log(`[${new Date().toISOString()}] bot starting, contract ${CONTRACT}`)
+
+  const markets = await getMarkets()
+  if (markets.length === 0) {
+    console.log('No markets found yet')
+  } else {
+    await resolveExpired(markets)
+  }
+
+  // Re-check after resolving, a market that just got resolved above should
+  // free up its schedule_type slot for a fresh one in this same run rather
+  // than waiting a full extra cycle.
+  const freshMarkets = await getMarkets()
+  await keepScheduledMarketsRunning(freshMarkets)
 
   console.log('Run complete')
 }

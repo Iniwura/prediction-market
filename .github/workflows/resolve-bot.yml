@@ -1,4 +1,4 @@
-name: Resolve expired markets
+name: Resolve and schedule markets
 
 on:
   schedule:
