@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useMemo } from 'react'
 import Header from './components/Header.jsx'
 import Toast from './components/Toast.jsx'
 import Home from './components/Home.jsx'
@@ -10,8 +10,42 @@ import Admin from './components/Admin.jsx'
 import { readContract, writeContract } from './lib/gl.js'
 import { CONTRACT, CHAIN_ID, NET_CFG } from './lib/config.js'
 
-function loadNotifLog() {
-  try { return JSON.parse(localStorage.getItem('gm_notiflog') || '[]') } catch (e) { return [] }
+function loadSeenNotifs() {
+  try { return JSON.parse(localStorage.getItem('gm_seen_notifs') || '[]') } catch (e) { return [] }
+}
+
+function isDeadlinePassed(raw) {
+  if (!raw || raw === 'No deadline') return false
+  const t = Date.parse(raw)
+  if (isNaN(t)) return false
+  return Date.now() > t
+}
+
+// Notifications are derived fresh from current on-chain state (your bets
+// cross-referenced with market status), not a growing event log. This is
+// what makes "won/lost/awaiting resolution/claim" possible: those are
+// facts about right now, not things that happened at some point. It also
+// means a claimed bet naturally drops off the list on its own, no manual
+// cleanup needed.
+function deriveNotifications(markets, myBets) {
+  const marketById = {}
+  markets.forEach(m => { marketById[m.id] = m })
+  const items = []
+  Object.entries(myBets || {}).forEach(([id, bet]) => {
+    const m = marketById[id]
+    const question = (m?.question || ('Market #' + id))
+    const short = question.length > 60 ? question.slice(0, 60).trim() + '…' : question
+    if (bet.status === 'WON') {
+      items.push({ id: id + '-won', kind: 'won', text: `Your bet on "${short}" won, claim your reward` })
+    } else if (bet.status === 'LOST') {
+      items.push({ id: id + '-lost', kind: 'lost', text: `Your bet on "${short}" lost` })
+    } else if (bet.status === 'CANCELLED') {
+      items.push({ id: id + '-cancelled', kind: 'cancelled', text: `"${short}" was cancelled, refund available` })
+    } else if (bet.status === 'OPEN' && m && isDeadlinePassed(m.deadline)) {
+      items.push({ id: id + '-pending', kind: 'pending', text: `"${short}" is awaiting resolution` })
+    }
+  })
+  return items
 }
 
 // The real GenLayer mark, sourced directly from the official design
@@ -67,24 +101,22 @@ export default function App() {
   const [owner,     setOwner]     = useState('')
   const [admins,    setAdmins]    = useState([])
   const [toast,     setToast]     = useState({ msg: '', type: 'ok' })
-  const [notifLog,  setNotifLog]  = useState(loadNotifLog)
+  const [seenNotifs, setSeenNotifs] = useState(loadSeenNotifs)
 
-  // notify() drives the toast AND silently writes to a persistent log the
-  // user can reopen later via the bell icon, no extra calls needed anywhere
-  // else in the app, since every meaningful action already calls notify().
+  // Plain toast, no logging side effect, notifications are derived below
+  // from real bet/market state, not from a record of every notify() call.
   const notify = (msg, type = 'ok') => {
     setToast({ msg, type })
-    setNotifLog(prev => {
-      const entry = { id: Date.now() + Math.random(), msg, type, ts: Date.now(), read: false }
-      const next = [entry, ...prev].slice(0, 25)
-      try { localStorage.setItem('gm_notiflog', JSON.stringify(next)) } catch (e) {}
-      return next
-    })
   }
+
+  const notifications = useMemo(() => {
+    return deriveNotifications(markets, myBets).map(n => ({ ...n, read: seenNotifs.includes(n.id) }))
+  }, [markets, myBets, seenNotifs])
+
   const markNotifsRead = () => {
-    setNotifLog(prev => {
-      const next = prev.map(n => ({ ...n, read: true }))
-      try { localStorage.setItem('gm_notiflog', JSON.stringify(next)) } catch (e) {}
+    setSeenNotifs(() => {
+      const next = notifications.map(n => n.id)
+      try { localStorage.setItem('gm_seen_notifs', JSON.stringify(next)) } catch (e) {}
       return next
     })
   }
@@ -218,7 +250,7 @@ export default function App() {
           theme={theme} onThemeToggle={() => setTheme(t => t === 'light' ? 'dark' : 'light')}
           onConnect={connect} onDisconnect={disconnect}
           page={page} onNav={setPage}
-          notifLog={notifLog} onMarkNotifsRead={markNotifsRead}
+          notifications={notifications} onMarkNotifsRead={markNotifsRead}
           isOwner={sharedProps.isOwner}
         />
 

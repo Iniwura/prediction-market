@@ -26,15 +26,14 @@ const BellIcon = () => (
   </svg>
 )
 
-function timeAgo(ts) {
-  const s = Math.floor((Date.now() - ts) / 1000)
-  if (s < 60) return s + 's ago'
-  if (s < 3600) return Math.floor(s/60) + 'm ago'
-  if (s < 86400) return Math.floor(s/3600) + 'h ago'
-  return Math.floor(s/86400) + 'd ago'
+const NOTIF_ICON = {
+  won:       { glyph: 'W', color: 'var(--green)' },
+  lost:      { glyph: 'L', color: 'var(--red)' },
+  pending:   { glyph: 'P', color: 'var(--amber)' },
+  cancelled: { glyph: '!', color: 'var(--muted)' },
 }
 
-export default function Header({ account, connected, genBal, theme, onThemeToggle, onConnect, onDisconnect, page, onNav, notifLog=[], onMarkNotifsRead, isOwner }) {
+export default function Header({ account, connected, genBal, theme, onThemeToggle, onConnect, onDisconnect, page, onNav, notifications=[], onMarkNotifsRead, isOwner }) {
   const [menuOpen,  setMenuOpen]  = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
   const notifRef = useRef(null)
@@ -45,7 +44,7 @@ export default function Header({ account, connected, genBal, theme, onThemeToggl
     ...(isOwner ? [{key:'admin',label:'Admin'}] : []),
   ]
   const go = (key) => { onNav(key); setMenuOpen(false) }
-  const unread = notifLog.filter(n => !n.read).length
+  const unread = notifications.filter(n => !n.read).length
 
   const toggleNotif = () => {
     setNotifOpen(o => {
@@ -95,17 +94,25 @@ export default function Header({ account, connected, genBal, theme, onThemeToggl
             {notifOpen && (
               <div className="notif-panel">
                 <div className="notif-panel-head">Notifications</div>
-                {notifLog.length === 0 ? (
-                  <div className="notif-empty">Nothing yet, your activity will show up here</div>
-                ) : notifLog.map(n => (
-                  <div key={n.id} className={`notif-item${n.read?'':' unread'}`}>
-                    <span className={`notif-dot ${n.type==='err'?'err':'ok'}`}/>
-                    <div>
-                      <div className="notif-msg">{n.msg}</div>
-                      <div className="notif-time">{timeAgo(n.ts)}</div>
+                {notifications.length === 0 ? (
+                  <div className="notif-empty">Nothing to show, bet outcomes and claims will show up here</div>
+                ) : notifications.map(n => {
+                  const icon = NOTIF_ICON[n.kind] || NOTIF_ICON.pending
+                  return (
+                    <div
+                      key={n.id}
+                      className={`notif-item${n.read?'':' unread'}`}
+                      onClick={() => { go('profile'); setNotifOpen(false) }}
+                      style={{cursor:'pointer'}}
+                    >
+                      <span className="notif-dot" style={{background:icon.color}}>{icon.glyph}</span>
+                      <div>
+                        <div className="notif-msg">{n.text}</div>
+                        <div className="notif-time">{n.kind==='won' ? 'Tap to claim' : 'Tap to view'}</div>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </div>
