@@ -96,10 +96,10 @@ export default function MarketCard({ m, myBet, connected, isOwner, onBet, onReso
     <div className={`mcard${isRes||isCanc ? ' mcard-settled' : ''}`}>
       {/* Meta row */}
       <div className="mcard-meta">
-        <span className={`badge ${isOpen?'badge-open':isRes?'badge-resolved':isCanc?'badge-cancelled':'badge-pending'}`}>{m.status}</span>
         {m.schedule_type && m.schedule_type !== 'manual' && (
           <span className="badge badge-sched">{m.schedule_type}</span>
         )}
+        <span className={`badge ${isOpen?'badge-open':isRes?'badge-resolved':isCanc?'badge-cancelled':'badge-pending'}`}>{m.status}</span>
         {dl && !isCanc && (
           countdown ? (
             <span className="mcard-dl" title={dl}>

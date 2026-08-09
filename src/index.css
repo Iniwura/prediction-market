@@ -191,7 +191,7 @@ a { color: inherit; text-decoration: none; }
 .badge-pending  { background: rgba(245,158,11,.1); color: var(--amber); border: 1px solid rgba(245,158,11,.2); }
 .badge-cancelled { background: var(--red-dim); color: var(--red); border: 1px solid rgba(244,63,94,.2); }
 .badge-sched    { background: var(--bg2); color: var(--text3); border: 1px solid var(--border); }
-.mcard-dl { font-size: 11px; color: var(--muted); font-family: var(--mono); display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
+.mcard-dl { margin-left: auto; font-size: 11px; color: var(--muted); font-family: var(--mono); display: flex; flex-direction: column; align-items: flex-end; gap: 1px; }
 .mcard-dl-count { font-size: 12px; font-weight: 700; color: var(--text2); }
 .mcard-dl-exact { font-size: 9.5px; color: var(--muted); opacity: .8; }
 
