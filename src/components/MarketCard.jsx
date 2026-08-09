@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 
 // Pool and total_pool come from the contract as raw wei integers,
 // same fix as the games' payout display.
@@ -59,11 +59,20 @@ export default function MarketCard({ m, myBet, connected, isOwner, onBet, onReso
   const [confirmCancel, setConfirmCancel] = useState(false)
   const [hidden, setHidden] = useState(false)
   const [now, setNow] = useState(() => Date.now())
+  const [menuOpen, setMenuOpen] = useState(false)
+  const menuRef = useRef(null)
 
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 60000)
     return () => clearInterval(id)
   }, [])
+
+  useEffect(() => {
+    if (!menuOpen) return
+    const close = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) setMenuOpen(false) }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [menuOpen])
 
   const needsRefund = isCanc && myBet && myBet.status !== 'CLAIMED'
   const deadlinePassed  = isOpen && isDeadlinePassed(m.deadline)
@@ -127,6 +136,7 @@ export default function MarketCard({ m, myBet, connected, isOwner, onBet, onReso
               <div className="oc-label">{o}{isWin ? ' ✓' : ''}</div>
               <div className="oc-pct">{prob}%</div>
               <div className="oc-pool">{weiToGen(pool)} GEN</div>
+              <div className="oc-bar"><div className="oc-bar-fill" style={{width: prob+'%'}}/></div>
             </div>
           )
         })}
@@ -162,28 +172,39 @@ export default function MarketCard({ m, myBet, connected, isOwner, onBet, onReso
       {/* Footer */}
       <div className="mcard-footer">
         <span className="mcard-vol"><b>{weiToGen(m.total_pool)}</b> GEN · <b>{m.total_bets||0}</b> bets</span>
-        <div style={{ display:'flex', gap:6, alignItems:'center' }}>
+        <div style={{ display:'flex', gap:10, alignItems:'center' }}>
           {isRes && <span style={{ color:'var(--teal)', fontFamily:'var(--mono)', fontWeight:700, fontSize:11 }}>Winner: {m.winner}</span>}
           {isOpen && connected && (
             <button
-              className="resolve-btn"
+              className="refresh-link"
               disabled={refreshingOdds}
               title="Re-run AI odds using live evidence, existing bets are never touched"
-              style={{borderColor:'rgba(99,102,241,.25)',color:'var(--indigo)',opacity:refreshingOdds?.6:1}}
               onClick={() => !refreshingOdds && onRefreshOdds(m.id)}
             >
-              {refreshingOdds ? '↻ Refreshing…' : '↻ Refresh Odds'}
-            </button>
-          )}
-          {isOpen && connected && isOwner && (
-            <button className={`resolve-btn${resolving ? ' loading' : ''}`} onClick={() => !resolving && onResolve(m.id)}>
-              {resolving ? 'Resolving…' : 'Resolve'}
+              {refreshingOdds ? '↻ Refreshing…' : '↻ Refresh odds'}
             </button>
           )}
           {isOpen && isOwner && !confirmCancel && (
-            <button className="resolve-btn" style={{borderColor:'rgba(244,63,94,.25)',color:'var(--red)'}} onClick={() => setConfirmCancel(true)}>
-              Cancel
-            </button>
+            <div className="mcard-menu-wrap" ref={menuRef}>
+              <button className="mcard-menu-btn" onClick={() => setMenuOpen(o=>!o)} title="More">⋮</button>
+              {menuOpen && (
+                <div className="mcard-menu">
+                  <button
+                    className="mcard-menu-item"
+                    disabled={resolving}
+                    onClick={() => { setMenuOpen(false); onResolve(m.id) }}
+                  >
+                    {resolving ? 'Resolving…' : 'Resolve'}
+                  </button>
+                  <button
+                    className="mcard-menu-item danger"
+                    onClick={() => { setMenuOpen(false); setConfirmCancel(true) }}
+                  >
+                    Cancel market
+                  </button>
+                </div>
+              )}
+            </div>
           )}
           {isOpen && isOwner && confirmCancel && <>
             <span style={{fontSize:10,color:'var(--muted)'}}>Sure?</span>
