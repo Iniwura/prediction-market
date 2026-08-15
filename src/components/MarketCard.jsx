@@ -1,35 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react'
+import { weiToGen } from '../lib/config.js'
 
-// Pool and total_pool come from the contract as raw wei integers,
-// same fix as the games' payout display.
-function weiToGen(wei) {
-  const n = Number(wei) || 0
-  return (n / 1e18).toFixed(4).replace(/\.?0+$/, '') || '0'
-}
-
-function formatDeadline(raw) {
-  if (!raw || raw === 'No deadline') return null
-  // Deadlines are stored as toUTCString() output, e.g. "Sat, 05 Jul 2026 16:00:00 GMT"
-  // Date.parse handles this format natively, use it directly rather than
-  // only matching an ISO-style prefix, which silently missed every
-  // auto-generated market's deadline and left the raw string unformatted.
-  const t = Date.parse(raw)
-  if (!isNaN(t)) {
-    const d = new Date(t)
-    return d.toLocaleString('en-GB', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', timeZone:'UTC' }) + ' UTC'
-  }
-  return raw
+function formatDeadline(deadlineTs) {
+  const ts = Number.parseInt(String(deadlineTs || '0'), 10)
+  if (!Number.isFinite(ts) || ts <= 0) return null
+  return new Date(ts * 1000).toLocaleString('en-GB', { day:'numeric', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit', timeZone:'UTC' }) + ' UTC'
 }
 
 // Live countdown, primary display, the exact timestamp above stays as
 // secondary detail. Minute-level precision is enough for a market that
 // runs hours to weeks, no need to tick every second and cause constant
 // re-renders across a whole grid of cards.
-function formatCountdown(raw, now) {
-  if (!raw || raw === 'No deadline') return null
-  const t = Date.parse(raw)
-  if (isNaN(t)) return null
-  const diffMs = t - now
+function formatCountdown(deadlineTs, now) {
+  const ts = Number.parseInt(String(deadlineTs || '0'), 10)
+  if (!Number.isFinite(ts) || ts <= 0) return null
+  const diffMs = ts * 1000 - now
   if (diffMs <= 0) return null
   const mins = Math.floor(diffMs / 60000)
   const days = Math.floor(mins / 1440)
@@ -40,15 +25,12 @@ function formatCountdown(raw, now) {
   return `${remMins}m`
 }
 
-// deadline_note is stored as a real UTC date string (e.g. from toUTCString()).
-// If it parses to a real date in the past, betting closes. Markets with an
-// unparseable or missing deadline fail open, never block betting on a
-// market we can't confidently evaluate.
-function isDeadlinePassed(raw) {
-  if (!raw || raw === 'No deadline') return false
-  const t = Date.parse(raw)
-  if (isNaN(t)) return false
-  return Date.now() > t
+// deadline_ts is the on-chain authority.  The human-readable deadline_note is
+// display-only and is never used to decide whether betting or settlement is
+// allowed.
+function isDeadlinePassed(deadlineTs) {
+  const ts = Number.parseInt(String(deadlineTs || '0'), 10)
+  return Number.isFinite(ts) && ts > 0 && Math.floor(Date.now() / 1000) >= ts
 }
 
 export default function MarketCard({ m, myBet, connected, canManage, onBet, onResolve, onCancel, onRefund, onRefreshOdds, resolving, cancelling, refunding, refreshingOdds }) {
@@ -75,7 +57,9 @@ export default function MarketCard({ m, myBet, connected, canManage, onBet, onRe
   }, [menuOpen])
 
   const needsRefund = isCanc && myBet && myBet.status !== 'CLAIMED'
-  const deadlinePassed  = isOpen && isDeadlinePassed(m.deadline)
+  const deadlinePassed  = isOpen && isDeadlinePassed(m.deadline_ts)
+  const canResolve = isOpen && connected && deadlinePassed
+  const canCancel = isOpen && canManage && !deadlinePassed
 
   if (hidden && (isRes || isCanc)) return null
 
@@ -89,8 +73,8 @@ export default function MarketCard({ m, myBet, connected, canManage, onBet, onRe
     return 'oc-btn oc-neu'
   }
 
-  const dl = formatDeadline(m.deadline)
-  const countdown = isOpen ? formatCountdown(m.deadline, now) : null
+  const dl = formatDeadline(m.deadline_ts)
+  const countdown = isOpen ? formatCountdown(m.deadline_ts, now) : null
 
   return (
     <div className={`mcard${isRes||isCanc ? ' mcard-settled' : ''}`}>
@@ -184,29 +168,29 @@ export default function MarketCard({ m, myBet, connected, canManage, onBet, onRe
               {refreshingOdds ? '↻ Refreshing…' : '↻ Refresh odds'}
             </button>
           )}
-          {isOpen && canManage && !confirmCancel && (
+          {isOpen && (canResolve || canCancel) && !confirmCancel && (
             <div className="mcard-menu-wrap" ref={menuRef}>
               <button className="mcard-menu-btn" onClick={() => setMenuOpen(o=>!o)} title="More">⋮</button>
               {menuOpen && (
                 <div className="mcard-menu">
-                  <button
+                  {canResolve && <button
                     className="mcard-menu-item"
                     disabled={resolving}
                     onClick={() => { setMenuOpen(false); onResolve(m.id) }}
                   >
                     {resolving ? 'Resolving…' : 'Resolve'}
-                  </button>
-                  <button
+                  </button>}
+                  {canCancel && <button
                     className="mcard-menu-item danger"
                     onClick={() => { setMenuOpen(false); setConfirmCancel(true) }}
                   >
                     Cancel market
-                  </button>
+                  </button>}
                 </div>
               )}
             </div>
           )}
-          {isOpen && canManage && confirmCancel && <>
+          {isOpen && canCancel && confirmCancel && <>
             <span style={{fontSize:10,color:'var(--muted)'}}>Sure?</span>
             <button className="resolve-btn" disabled={cancelling} style={{borderColor:'rgba(244,63,94,.3)',color:'var(--red)',background:'var(--red-dim)'}} onClick={() => { onCancel(m.id); setConfirmCancel(false) }}>
               {cancelling ? 'Cancelling…' : 'Yes, cancel'}

@@ -1,6 +1,6 @@
 import React from 'react'
 import Ticker from './Ticker.jsx'
-import { fmt } from '../lib/config.js'
+import { fmt, weiToGen } from '../lib/config.js'
 
 export default function Home({ markets, connected, onConnect, goTo }) {
   const open     = markets.filter(m => m.status === 'OPEN')
@@ -75,7 +75,7 @@ export default function Home({ markets, connected, onConnect, goTo }) {
                     })}
                   </div>
                   <div style={{display:'flex',justifyContent:'space-between',fontSize:11,fontFamily:'var(--mono)',color:'var(--muted)'}}>
-                    <span>{((Number(m.total_pool)||0)/1e18).toFixed(4).replace(/\.?0+$/,'')||'0'} GEN pooled</span>
+                    <span>{weiToGen(m.total_pool, 4)} GEN pooled</span>
                     <span>{m.total_bets||0} bets</span>
                   </div>
                 </div>

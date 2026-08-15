@@ -92,16 +92,19 @@ export async function waitForTxStatus(hash, onStatus, timeoutMs = 90000) {
   const start = Date.now()
   let lastStatus = ''
   while (Date.now() - start < timeoutMs) {
+    let status = ''
     try {
       const raw = await client.request({ method: 'gen_getTransactionStatus', params: [hash] })
-      const status = (typeof raw === 'string' ? raw : raw?.status || raw?.Status || '').toUpperCase()
-      if (status && status !== lastStatus) {
-        lastStatus = status
-        onStatus && onStatus(status)
-      }
-      if (status === 'ACCEPTED' || status === 'FINALIZED') return status
-      if (status === 'CANCELED' || status === 'UNDETERMINED') return status
+      status = (typeof raw === 'string' ? raw : raw?.status || raw?.Status || '').toUpperCase()
     } catch (e) { /* best-effort channel */ }
+    if (status && status !== lastStatus) {
+      lastStatus = status
+      // Callback failures are caller-visible transaction failures; do not
+      // swallow them as if the RPC request itself had timed out.
+      onStatus && onStatus(status)
+    }
+    if (status.includes('ERROR') || status === 'CANCELED' || status === 'UNDETERMINED') return status
+    if (status === 'ACCEPTED' || status === 'FINALIZED') return status
     await new Promise(r => setTimeout(r, 2500))
   }
   return lastStatus

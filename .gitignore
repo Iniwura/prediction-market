@@ -1,3 +1,10 @@
 node_modules
 dist
 .vercel
+__pycache__/
+.pytest_cache/
+artifacts/
+
+.venv/
+deploy/*.disabled
+fund-contract.mjs

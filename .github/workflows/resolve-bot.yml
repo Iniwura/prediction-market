@@ -2,16 +2,23 @@ name: Resolve and schedule markets
 
 on:
   schedule:
-    # Once a day, at 00:00 UTC. Started at every 10 minutes, which was
-    # too tight, back-to-back runs could fire before the previous run's
-    # transactions had time to confirm, piling up pending/duplicate
-    # resolve attempts on the same market. Daily gives plenty of room.
+    # Once a day, at 00:00 UTC. The bot is optional because settlement is
+    # permissionless; this cadence is only for background maintenance and
+    # scheduled-market creation.
     - cron: '0 0 * * *'
   workflow_dispatch: {}   # lets you trigger a run manually from the Actions tab
+
+permissions:
+  contents: read
+
+concurrency:
+  group: resolve-bot
+  cancel-in-progress: false
 
 jobs:
   resolve:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: bot
@@ -22,7 +29,7 @@ jobs:
         with:
           node-version: 20
 
-      - run: npm install
+      - run: npm ci
 
       - run: npm run resolve
         env:

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { readContract } from '../lib/gl.js'
-import { CONTRACT, sh, fmt } from '../lib/config.js'
+import { CONTRACT, sh, fmt, weiToGen } from '../lib/config.js'
 
 export default function Leaderboard({ account }) {
   const [list,    setList]    = useState([])
@@ -69,7 +69,7 @@ export default function Leaderboard({ account }) {
                   <span className="lb-xp">{fmt(e.xp)} XP</span>
                   <span className="lb-xp-caption">{winRate !== null ? winRate+'% win rate' : 'no record yet'}</span>
                 </div>
-                <span className="lb-vol">{((Number(e.wagered)||0)/1e18).toFixed(2)} GEN</span>
+                <span className="lb-vol">{weiToGen(e.wagered, 2)} GEN</span>
                 <span className="lb-record">{e.wins||0}W / {e.losses||0}L</span>
               </div>
             )

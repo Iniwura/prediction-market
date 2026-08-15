@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react'
 import MarketCard from './MarketCard.jsx'
-import { writeContract, readContract, pollForChange } from '../lib/gl.js'
-import { CONTRACT, EXPLORER } from '../lib/config.js'
+import { writeContract, readContract, pollForChange, waitForTxStatus } from '../lib/gl.js'
+import { CONTRACT, EXPLORER, genToWei, weiToGen } from '../lib/config.js'
 
-export default function Markets({ account, connected, markets, myBets, genBal, notify, loadMarkets, canManage }) {
+export default function Markets({ account, connected, markets, myBets, genBalWei, notify, loadMarkets, canManage }) {
   const [betModal,    setBetModal]    = useState(null)
   const [txOpen,      setTxOpen]      = useState(false)
   const [txLogs,      setTxLogs]      = useState([])
-  const [betAmt,      setBetAmt]      = useState(1)
+  const [betAmt,      setBetAmt]      = useState('1')
   const [busy,        setBusy]        = useState({})
   const [refreshBusy, setRefreshBusy] = useState({})
   const [refundBusy,  setRefundBusy]  = useState({})
@@ -43,12 +43,14 @@ export default function Markets({ account, connected, markets, myBets, genBal, n
     const m = markets.find(x => x.id === marketId)
     if (!m || m.status !== 'OPEN') return
     setBetModal({ marketId, outcome: outcome || m.outcomes[0], market: m })
-    setBetAmt(1)
+    setBetAmt('1')
   }
 
   const confirmBet = async () => {
     if (!betModal) return
-    if (betAmt < 0.1)    { notify('Minimum 0.1 GEN','err'); return }
+    let valueWei
+    try { valueWei = genToWei(betAmt) } catch (e) { notify('Enter a valid GEN amount','err'); return }
+    if (valueWei < 100000000000000000n) { notify('Minimum 0.1 GEN','err'); return }
     const { marketId, outcome, market } = betModal
     setBetModal(null)
     notify('Submitting prediction…','ok')
@@ -60,7 +62,6 @@ export default function Markets({ account, connected, markets, myBets, genBal, n
       try { before = JSON.parse(beforeRaw||'{}')?.total_pool || 0 } catch(e) {}
 
       // place_bet is now payable, GEN stake sent as transaction value
-      const valueWei = BigInt(Math.round(betAmt * 1e18))
       const hash = await writeContract(CONTRACT, account, 'place_bet', [marketId, outcome], false, valueWei)
       txId = addTx({ market: marketLabel, type: 'Bet', outcome, amount: betAmt+' GEN', txHash: hash })
       notify('Validators processing… (~20-40s)','ok')
@@ -91,6 +92,10 @@ export default function Markets({ account, connected, markets, myBets, genBal, n
       notify('This market is already '+current.status.toLowerCase(),'err')
       return
     }
+    if (!current || !current.deadline_ts || Math.floor(Date.now() / 1000) < Number(current.deadline_ts)) {
+      notify('Resolution is available after the on-chain deadline','err')
+      return
+    }
 
     const marketLabel = shortQ(current?.question, id)
     setBusy(b => ({...b, [id]: true}))
@@ -107,16 +112,16 @@ export default function Markets({ account, connected, markets, myBets, genBal, n
       // In this contract that only happens when the market isn't OPEN
       // (caught above) or the AI referee judges the deadline hasn't
       // passed. Normal consensus completes in well under a minute.
-      let resolved = false
       let winner = null
-      const start = Date.now()
-      while (Date.now() - start < 60000 && !resolved) {
-        await new Promise(r => setTimeout(r, 4000))
+      await waitForTxStatus(hash, status => {
+        if (status === 'CANCELED' || status === 'UNDETERMINED') throw new Error('Resolve transaction did not complete')
+      })
+      await pollForChange(async () => {
         const raw = await readContract(CONTRACT, 'get_market', [id])
-        try { const j = JSON.parse(raw); resolved = j?.status === 'RESOLVED'; winner = j?.winner } catch(e) {}
-      }
+        try { const j = JSON.parse(raw); winner = j?.winner; return j?.status === 'RESOLVED' ? j : null } catch(e) { return null }
+      }, { timeoutMs: 180000 })
 
-      if (resolved) {
+      if (winner !== null) {
         notify('Market resolved ✓','ok')
         updateTx(txId, { status: 'Confirmed', outcome: winner || undefined })
         await loadMarkets()
@@ -146,10 +151,8 @@ export default function Markets({ account, connected, markets, myBets, genBal, n
       const hash = await writeContract(CONTRACT, account, 'refresh_odds', [id])
       txId = addTx({ market: marketLabel, type: 'Refresh Odds', txHash: hash })
 
-      // Same pattern as resolve, poll actual state rather than trust tx
-      // status alone, since ACCEPTED doesn't always mean the write landed
-      // in time for a subsequent read.
-      await new Promise(r => setTimeout(r, 8000))
+      const status = await waitForTxStatus(hash)
+      if (!status || status.includes('ERROR') || status === 'CANCELED' || status === 'UNDETERMINED') throw new Error('Odds refresh transaction did not complete')
       await loadMarkets()
       notify('Odds refreshed ✓, existing bets untouched','ok')
       updateTx(txId, { status: 'Confirmed' })
@@ -167,6 +170,8 @@ export default function Markets({ account, connected, markets, myBets, genBal, n
     try {
       const hash = await writeContract(CONTRACT, account, 'cancel_market', [id])
       txId = addTx({ market: marketLabel, type: 'Cancel', txHash: hash })
+      const status = await waitForTxStatus(hash)
+      if (!status || status.includes('ERROR') || status === 'CANCELED' || status === 'UNDETERMINED') throw new Error('Cancellation transaction did not complete')
 
       let cancelled = false
       const start = Date.now()
@@ -193,7 +198,7 @@ export default function Markets({ account, connected, markets, myBets, genBal, n
     const current = markets.find(x => x.id === id)
     const marketLabel = shortQ(current?.question, id)
     const bet = myBets[id]
-    const amountLabel = bet ? (Number(bet.amount)/1e18).toFixed(4).replace(/\.?0+$/,'')+' GEN' : undefined
+    const amountLabel = bet ? weiToGen(bet.amount, 4)+' GEN' : undefined
     setRefundBusy(b => ({...b, [id]: true}))
     notify('Requesting refund…','ok')
     let txId
@@ -201,13 +206,17 @@ export default function Markets({ account, connected, markets, myBets, genBal, n
       const hash = await writeContract(CONTRACT, account, 'refund', [id])
       txId = addTx({ market: marketLabel, type: 'Refund', outcome: bet?.outcome, amount: amountLabel, txHash: hash })
 
-      // No polling here, unlike resolve/cancel/create. A refund is a
-      // direct GEN transfer with no separate status field to check, so
-      // once the tx is accepted the transfer already happened, this is
-      // just a short pause before refreshing the list, not a real check.
-      await new Promise(r => setTimeout(r, 3000))
+      // A refund has no separate result field; poll the bettor's parent-side
+      // claim status after consensus. CLAIMED is not an EOA delivery receipt.
+      await waitForTxStatus(hash, status => {
+        if (status === 'CANCELED' || status === 'UNDETERMINED') throw new Error('Refund transaction did not complete')
+      })
+      await pollForChange(async () => {
+        const raw = await readContract(CONTRACT, 'get_my_bets_all', [account])
+        try { const list = JSON.parse(raw || '[]'); return Array.isArray(list) && list.some(x => x.id === id && x.status === 'CLAIMED') ? list : null } catch(e) { return null }
+      })
 
-      notify('Refund received ✓','ok')
+      notify('Refund message committed; delivery runs at finalization','ok')
       updateTx(txId, { status: 'Confirmed' })
       await loadMarkets()
     } catch(e) { notify(e.message,'err'); if (txId) updateTx(txId, { status: 'Failed' }) }
@@ -221,12 +230,15 @@ export default function Markets({ account, connected, markets, myBets, genBal, n
     .slice()
     .sort((a, b) => {
       if (sortBy === 'closing') {
-        const ta = Date.parse(a.deadline) || Infinity
-        const tb = Date.parse(b.deadline) || Infinity
+        const ta = Number(a.deadline_ts) || Infinity
+        const tb = Number(b.deadline_ts) || Infinity
         return ta - tb
       }
       if (sortBy === 'newest')  return b.id - a.id
-      if (sortBy === 'volume')  return (Number(b.total_pool)||0) - (Number(a.total_pool)||0)
+      if (sortBy === 'volume') {
+        const av = BigInt(String(a.total_pool || 0)), bv = BigInt(String(b.total_pool || 0))
+        return bv > av ? -1 : bv < av ? 1 : 0
+      }
       if (sortBy === 'bets')    return (b.total_bets||0) - (a.total_bets||0)
       return 0
     })
@@ -348,15 +360,15 @@ export default function Markets({ account, connected, markets, myBets, genBal, n
               <button onClick={() => setBetModal(null)} style={{background:'none',border:'none',color:'var(--muted)',fontSize:18,cursor:'pointer'}}>✕</button>
             </div>
             <div style={{fontSize:13,color:'var(--text3)',marginBottom:10,lineHeight:1.5,padding:'10px 12px',background:'var(--bg2)',borderRadius:8,border:'1px solid var(--border)'}}>{betModal.market?.question}</div>
-            <div style={{fontSize:12,color:'var(--muted)',marginBottom:10,fontFamily:'var(--mono)'}}>Balance: {genBal?.toFixed(4) || '0.0000'} GEN</div>
+            <div style={{fontSize:12,color:'var(--muted)',marginBottom:10,fontFamily:'var(--mono)'}}>Balance: {weiToGen(genBalWei, 4)} GEN</div>
             <div className="mfield">
               <label>Amount (GEN)</label>
-              <input type="number" value={betAmt} min="0.1" step="0.1" onChange={e=>setBetAmt(parseFloat(e.target.value)||0)}/>
+              <input type="number" value={betAmt} min="0.1" step="0.1" onChange={e=>setBetAmt(e.target.value)}/>
             </div>
-            {betAmt > 0 && betModal.market && (() => {
+            {Number(betAmt) > 0 && betModal.market && (() => {
               const i=(betModal.market.outcomes||[]).indexOf(betModal.outcome)
               const prob=betModal.market.ai_probs?.[i]||50
-              const est=Math.floor(betAmt*100/Math.max(1,prob))
+              const est=(Number(betAmt)*100/Math.max(1,prob)).toFixed(4).replace(/\.?0+$/,'')
               return <div className="bet-payout-callout">If {betModal.outcome} ({prob}%) wins → <strong>{est} GEN</strong></div>
             })()}
             <div style={{display:'flex',gap:8}}>

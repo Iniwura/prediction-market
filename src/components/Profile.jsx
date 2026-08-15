@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
-import { readContract, writeContract } from '../lib/gl.js'
-import { CONTRACT, EXPLORER, sh, fmt } from '../lib/config.js'
+import { readContract, writeContract, waitForTxStatus, pollForChange } from '../lib/gl.js'
+import { CONTRACT, EXPLORER, sh, fmt, genToWei, weiToGen } from '../lib/config.js'
 
 function getRank(xp) {
   if (xp >= 5000) return { label: 'Legend',  color: '#E37DF7', bg: 'rgba(227,125,247,.12)' }
@@ -17,7 +17,7 @@ const AvatarIcon = () => (
   </svg>
 )
 
-export default function Profile({ account, connected, genBal, username, markets, notify, setUsername, onConnect, loadGenBal }) {
+export default function Profile({ account, connected, genBalWei, username, markets, notify, setUsername, onConnect, loadGenBal }) {
   const [bets,    setBets]    = useState([])
   const [stats,   setStats]   = useState(null)
   const [loading, setLoading] = useState(false)
@@ -49,10 +49,12 @@ export default function Profile({ account, connected, genBal, username, markets,
   const claimWinnings = async (betId) => {
     setClaimingId(betId)
     try {
-      await writeContract(CONTRACT, account, 'claim_winnings', [parseInt(betId)])
+      const hash = await writeContract(CONTRACT, account, 'claim_winnings', [parseInt(betId)])
+      const status = await waitForTxStatus(hash)
+      if (!status || status.includes('ERROR') || status === 'CANCELED' || status === 'UNDETERMINED') throw new Error('Claim transaction did not complete')
       notify('Claiming…', 'ok')
 
-      // Poll for the real state change instead of a blind timeout ,
+      // Poll for the real parent-side state change instead of a blind timeout,
       // a fixed 6s wait left the Claim button clickable again if the
       // real confirmation took longer, letting the same bet be "claimed"
       // repeatedly since the contract still reported WON, not CLAIMED yet.
@@ -70,7 +72,7 @@ export default function Profile({ account, connected, genBal, username, markets,
 
       await loadBets()
       if (confirmed) {
-        notify('Winnings claimed, allow ~30 min for finality to fully reflect in your wallet', 'ok')
+        notify('Payout message committed; external delivery runs at finalization', 'ok')
       } else {
         notify('Still confirming, refresh in a moment to see the updated status', 'ok')
       }
@@ -128,7 +130,7 @@ export default function Profile({ account, connected, genBal, username, markets,
               </div>
               <div className="p-tags">
                 <span className="p-tag">Bradbury</span>
-                <span className="p-tag">{genBal.toFixed(4)} GEN</span>
+              <span className="p-tag">{weiToGen(genBalWei, 4)} GEN</span>
                 {username && <span className="p-tag">@{username}</span>}
               </div>
               <span style={{display:'inline-flex',alignItems:'center',gap:5,marginTop:8,fontSize:11,fontWeight:700,letterSpacing:'.08em',padding:'4px 12px',borderRadius:100,border:'1px solid rgba(255,255,255,.15)',background:'rgba(255,255,255,.1)',color:'#fff'}}>
@@ -150,7 +152,7 @@ export default function Profile({ account, connected, genBal, username, markets,
         <div className="p-stats">
           <div className="p-stat">
             <div className="p-stat-label">GEN Balance</div>
-            <div className="p-stat-val">{genBal.toFixed(4)}</div>
+            <div className="p-stat-val">{weiToGen(genBalWei, 4)}</div>
             <div style={{display:'flex',alignItems:'center',gap:8,marginTop:8}}>
               <div className="p-stat-sub" style={{marginTop:0}}>GenLayer Bradbury</div>
               <a href="https://testnet-faucet.genlayer.foundation/" target="_blank" rel="noreferrer" title="Get testnet GEN from faucet"
@@ -203,7 +205,7 @@ export default function Profile({ account, connected, genBal, username, markets,
                   {(mkt.question || 'Market #'+b.id).slice(0,72)}{(mkt.question||'').length>72?'…':''}
                 </span>
                 <span style={{fontSize:11.5,fontFamily:'var(--mono)',color:'var(--text3)',whiteSpace:'nowrap'}}>
-                  {b.outcome} · {((Number(b.amount)||0)/1e18).toFixed(4).replace(/\.?0+$/,'')||'0'} GEN
+                  {b.outcome} · {weiToGen(b.amount, 4)} GEN
                 </span>
                 {b.status === 'WON' && (
                   <button
@@ -216,7 +218,7 @@ export default function Profile({ account, connected, genBal, username, markets,
                   </button>
                 )}
                 {b.status === 'CLAIMED' && (
-                  <span style={{fontSize:11,color:'var(--muted)',fontFamily:'var(--mono)',flexShrink:0}}>✓ Claimed</span>
+                  <span style={{fontSize:11,color:'var(--muted)',fontFamily:'var(--mono)',flexShrink:0}}>✓ Message committed</span>
                 )}
               </div>
             )
@@ -224,12 +226,12 @@ export default function Profile({ account, connected, genBal, username, markets,
         </div>
       </div>
       {editOpen && <EditModal account={account} username={username} notify={notify} onSave={setUsername} onClose={() => setEditOpen(false)} />}
-      {sendOpen && <SendModal account={account} genBal={genBal} notify={notify} loadGenBal={loadGenBal} onClose={() => setSendOpen(false)} />}
+      {sendOpen && <SendModal account={account} genBalWei={genBalWei} notify={notify} loadGenBal={loadGenBal} onClose={() => setSendOpen(false)} />}
     </div>
   )
 }
 
-function SendModal({ account, genBal, notify, loadGenBal, onClose }) {
+function SendModal({ account, genBalWei, notify, loadGenBal, onClose }) {
   const [to, setTo]     = useState('')
   const [amt, setAmt]   = useState('')
   const [busy, setBusy] = useState(false)
@@ -237,37 +239,25 @@ function SendModal({ account, genBal, notify, loadGenBal, onClose }) {
   const send = async () => {
     const recipient = to.trim()
     if (!recipient) { notify('Enter an address or username','err'); return }
-    const val = parseFloat(amt)
-    if (!val || val <= 0) { notify('Enter an amount','err'); return }
-    if (val > genBal) { notify('Insufficient GEN balance','err'); return }
+    let valueWei
+    try { valueWei = genToWei(amt) } catch (e) { notify('Enter a valid amount','err'); return }
+    if (valueWei <= 0n) { notify('Enter an amount','err'); return }
+    if (valueWei > genBalWei) { notify('Insufficient GEN balance','err'); return }
+    const val = weiToGen(valueWei, 4)
 
     setBusy(true)
     try {
-      const valueWei = BigInt(Math.round(val * 1e18))
       const hash = await writeContract(CONTRACT, account, 'send_gen', [recipient], false, valueWei)
-      notify('Sending…','ok')
+      await waitForTxStatus(hash, status => {
+        if (status === 'CANCELED' || status === 'UNDETERMINED') throw new Error('Send transaction did not complete')
+      })
+      notify('Parent message accepted; external delivery is pending finalization','ok')
 
-      // Drive completion off real balance change, same pattern proven
-      // working elsewhere in the app, poll actual state, not tx status
-      const before = genBal
-      let confirmed = false
-      const start = Date.now()
-      while (Date.now() - start < 60000 && !confirmed) {
-        await new Promise(r => setTimeout(r, 4000))
-        try {
-          const r = await window.ethereum.request({ method: 'eth_getBalance', params: [account, 'latest'] })
-          const bal = parseFloat(BigInt(r).toString()) / 1e18
-          if (bal < before - val + 0.001) confirmed = true
-        } catch(e) {}
-      }
-
-      if (confirmed) {
-        notify(val + ' GEN sent ✓','ok')
-        loadGenBal && loadGenBal()
-        onClose()
-      } else {
-        notify('Still confirming, check explorer for tx '+hash.slice(0,10)+'…','ok')
-      }
+      // Parent status confirms the message commitment only; it is not proof
+      // that the EOA recipient has received the GEN.
+      notify(val + ' GEN message committed; external delivery runs at finalization','ok')
+      loadGenBal && loadGenBal()
+      onClose()
     } catch(e) { notify(e.message,'err') }
     finally { setBusy(false) }
   }
@@ -284,7 +274,7 @@ function SendModal({ account, genBal, notify, loadGenBal, onClose }) {
           <label>Amount (GEN)</label>
           <input type="number" step="0.0001" value={amt} onChange={e => setAmt(e.target.value)} placeholder="0.5"/>
         </div>
-        <div style={{ fontSize:12, color:'var(--muted)', marginBottom:16, fontFamily:'var(--mono)' }}>Balance: {genBal.toFixed(4)} GEN</div>
+        <div style={{ fontSize:12, color:'var(--muted)', marginBottom:16, fontFamily:'var(--mono)' }}>Balance: {weiToGen(genBalWei, 4)} GEN</div>
         <div style={{ display:'flex', gap:8 }}>
           <button className="btn btn-outline" onClick={onClose} style={{ flex:1 }} disabled={busy}>Cancel</button>
           <button className="btn btn-primary" onClick={send} style={{ flex:1 }} disabled={busy}>{busy ? 'Sending…' : 'Send'}</button>
@@ -300,7 +290,13 @@ function EditModal({ account, username, notify, onSave, onClose }) {
     if (name.length < 3 || name.length > 20) { notify('3-20 characters', 'err'); return }
     if (!/^[a-zA-Z0-9_]+$/.test(name)) { notify('Letters, numbers, underscores only', 'err'); return }
     try {
-      await writeContract(CONTRACT, account, 'set_username', [name])
+      const hash = await writeContract(CONTRACT, account, 'set_username', [name])
+      const status = await waitForTxStatus(hash)
+      if (!status || status.includes('ERROR') || status === 'CANCELED' || status === 'UNDETERMINED') throw new Error('Username transaction did not complete')
+      await pollForChange(async () => {
+        const raw = await readContract(CONTRACT, 'get_username', [account])
+        return String(raw || '').replace(/^"|"$/g, '') === name
+      }, { intervalMs: 2500, timeoutMs: 60000 })
       onSave(name); notify('@' + name + ' claimed', 'ok'); onClose()
     } catch(e) { notify(e.message, 'err') }
   }
