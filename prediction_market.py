@@ -27,10 +27,9 @@ def _gen(wei: int) -> str:
     return str(whole) + "." + str(fraction).rjust(18, "0").rstrip("0")
 
 def _default_probs(outcomes: list) -> dict:
-    even = round(100 / len(outcomes))
-    probs = {o: even for o in outcomes}
-    probs[outcomes[0]] += 100 - sum(probs.values())
-    return probs
+    base = 100 // len(outcomes)
+    remainder = 100 % len(outcomes)
+    return {o: base + (1 if i < remainder else 0) for i, o in enumerate(outcomes)}
 
 class PredictionMarket(gl.Contract):
 
@@ -262,7 +261,7 @@ class PredictionMarket(gl.Contract):
             raise gl.vm.UserError("A valid HTTPS evidence URL is required")
         mid = int(self.market_count)
 
-        probs = self._generate_odds(outcomes)
+        probs = _default_probs(outcomes)
 
         self._save_market(mid, {
             "question":        question.strip(),

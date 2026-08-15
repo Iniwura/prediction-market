@@ -108,6 +108,38 @@ def test_manual_creation_rejects_deadline_at_contract_time(direct_vm, direct_dep
         contract.create_market("Will it pass?", "YES,NO", "https://example.com", "now", 1786363200)
 
 
+@pytest.mark.parametrize(
+    ("outcomes", "expected_probs"),
+    [
+        (["A", "B"], [50, 50]),
+        (["A", "B", "C"], [34, 33, 33]),
+        (["A", "B", "C", "D"], [25, 25, 25, 25]),
+        (["A", "B", "C", "D", "E", "F"], [17, 17, 17, 17, 16, 16]),
+    ],
+)
+def test_manual_creation_uses_deterministic_equal_probabilities(
+    direct_vm, direct_deploy, direct_owner, outcomes, expected_probs
+):
+    contract = direct_deploy("prediction_market.py")
+    direct_vm.warp("2026-08-10T12:00:00Z")
+    direct_vm.sender = _addr(contract, direct_owner)
+    direct_vm.value = 500000000000000000
+
+    contract.create_market(
+        "Will the deterministic test pass?",
+        ",".join(outcomes),
+        "https://example.com/evidence",
+        "later",
+        1786366800,
+    )
+    direct_vm.value = 0
+
+    market = json.loads(contract.get_market(0))
+    assert market["ai_probs"] == expected_probs
+    assert all(isinstance(prob, int) for prob in market["ai_probs"])
+    assert sum(market["ai_probs"]) == 100
+
+
 def test_resolution_requires_deadline_before_any_evidence_call(direct_vm, direct_deploy):
     contract = direct_deploy("prediction_market.py")
     direct_vm.warp("2026-08-10T11:59:59Z")
@@ -369,6 +401,12 @@ def test_source_rejects_memory_only_evidence_fallback_and_full_balance_withdraw(
 
 def test_source_covers_scheduled_deadlines_fees_and_game_bankroll_guards():
     source = Path("prediction_market.py").read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    create = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "_create_and_open_market")
+    refresh = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "refresh_odds")
+    assert "_generate_odds" not in ast.get_source_segment(source, create)
+    assert "prompt_non_comparative" in ast.get_source_segment(source, refresh)
+    assert "def _generate_odds" in source
     assert "int(gl.message.value) != CREATION_FEE" in source
     assert "def _create_scheduled_market" in source
     assert '"daily": (' in source
