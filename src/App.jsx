@@ -10,15 +10,13 @@ import Admin from './components/Admin.jsx'
 import { readContract, writeContract } from './lib/gl.js'
 import { CONTRACT, CHAIN_ID, NET_CFG } from './lib/config.js'
 
-function loadSeenNotifs() {
-  try { return JSON.parse(localStorage.getItem('gm_seen_notifs') || '[]') } catch (e) { return [] }
+function loadSeenNotifs(account = '') {
+  try { return JSON.parse(localStorage.getItem(`gm_seen_notifs_${account || 'guest'}`) || '[]') } catch (e) { return [] }
 }
 
-function isDeadlinePassed(raw) {
-  if (!raw || raw === 'No deadline') return false
-  const t = Date.parse(raw)
-  if (isNaN(t)) return false
-  return Date.now() > t
+function isDeadlinePassed(deadlineTs) {
+  const ts = Number.parseInt(String(deadlineTs || '0'), 10)
+  return Number.isFinite(ts) && ts > 0 && Math.floor(Date.now() / 1000) >= ts
 }
 
 // Notifications are derived fresh from current on-chain state (your bets
@@ -41,7 +39,7 @@ function deriveNotifications(markets, myBets) {
       items.push({ id: id + '-lost', kind: 'lost', text: `Your bet on "${short}" lost` })
     } else if (bet.status === 'CANCELLED') {
       items.push({ id: id + '-cancelled', kind: 'cancelled', text: `"${short}" was cancelled, refund available` })
-    } else if (bet.status === 'OPEN' && m && isDeadlinePassed(m.deadline)) {
+    } else if (bet.status === 'OPEN' && m && isDeadlinePassed(m.deadline_ts)) {
       items.push({ id: id + '-pending', kind: 'pending', text: `"${short}" is awaiting resolution` })
     }
   })
@@ -94,14 +92,15 @@ export default function App() {
   const [theme,     setTheme]     = useState(() => localStorage.getItem('gm-theme') || 'dark')
   const [account,   setAccount]   = useState('')
   const [connected, setConnected] = useState(false)
-  const [genBal,    setGenBal]    = useState(0)
+  const [genBalWei, setGenBalWei] = useState(0n)
   const [username,  setUsername]  = useState('')
   const [markets,   setMarkets]   = useState([])
   const [myBets,    setMyBets]    = useState({})
   const [owner,     setOwner]     = useState('')
   const [admins,    setAdmins]    = useState([])
   const [toast,     setToast]     = useState({ msg: '', type: 'ok' })
-  const [seenNotifs, setSeenNotifs] = useState(loadSeenNotifs)
+  const [seenNotifs, setSeenNotifs] = useState(() => loadSeenNotifs(''))
+  const [solvency, setSolvency] = useState(null)
 
   // Plain toast, no logging side effect, notifications are derived below
   // from real bet/market state, not from a record of every notify() call.
@@ -116,7 +115,7 @@ export default function App() {
   const markNotifsRead = () => {
     setSeenNotifs(() => {
       const next = notifications.map(n => n.id)
-      try { localStorage.setItem('gm_seen_notifs', JSON.stringify(next)) } catch (e) {}
+      try { localStorage.setItem(`gm_seen_notifs_${account || 'guest'}`, JSON.stringify(next)) } catch (e) {}
       return next
     })
   }
@@ -159,12 +158,20 @@ export default function App() {
     } catch (e) {}
   }, [])
 
+  const loadSolvency = useCallback(async () => {
+    try {
+      const raw = await readContract(CONTRACT, 'get_solvency', [])
+      setSolvency(raw ? JSON.parse(raw) : null)
+    } catch (e) { setSolvency(null) }
+  }, [])
+
   useEffect(() => {
     loadMarkets('')
     readContract(CONTRACT, 'get_owner', []).then(raw => {
       if (raw) setOwner(String(raw).toLowerCase().trim())
     }).catch(() => {})
     loadAdmins()
+    loadSolvency()
   }, [])
 
   // Auto-reconnect
@@ -186,16 +193,22 @@ export default function App() {
     window._glAccount = a
     notify('Connected ✓', 'ok')
     loadMarkets(a)
+    setSeenNotifs(loadSeenNotifs(a))
     await loadGenBal(a)
     // Username
     try {
       const raw = await readContract(CONTRACT, 'get_username', [a])
       if (raw && raw !== 'null' && raw !== '""') setUsername(raw.replace(/^"|"$/g, '') || '')
     } catch (e) {}
-    // Listeners
+    // Keep exactly one provider listener so account changes cannot leave
+    // stale wallet state or accumulate duplicate callbacks.
     try {
-      window.ethereum.on('accountsChanged', accs => { if (!accs.length) disconnect() })
-      window.ethereum.on('chainChanged', () => window.location.reload())
+      if (window._gmAccountsChanged) window.ethereum.removeListener('accountsChanged', window._gmAccountsChanged)
+      if (window._gmChainChanged) window.ethereum.removeListener('chainChanged', window._gmChainChanged)
+      window._gmAccountsChanged = accs => { if (!accs.length) disconnect(); else onConnected(accs[0]) }
+      window._gmChainChanged = () => window.location.reload()
+      window.ethereum.on('accountsChanged', window._gmAccountsChanged)
+      window.ethereum.on('chainChanged', window._gmChainChanged)
     } catch (e) {}
   }
 
@@ -203,7 +216,7 @@ export default function App() {
     if (!addr) return
     try {
       const r = await window.ethereum.request({ method: 'eth_getBalance', params: [addr, 'latest'] })
-      setGenBal(parseFloat(BigInt(r).toString()) / 1e18)
+      setGenBalWei(BigInt(r))
     } catch (e) {}
   }
 
@@ -223,12 +236,12 @@ export default function App() {
   }
 
   const disconnect = () => {
-    setAccount(''); setConnected(false); setGenBal(0); setUsername('')
+    setAccount(''); setConnected(false); setGenBalWei(0n); setUsername(''); setSeenNotifs(loadSeenNotifs(''))
     setMyBets({}); window._glAccount = ''
   }
 
   const sharedProps = {
-    account, connected, genBal, username,
+    account, connected, genBalWei, username, solvency,
     markets, myBets, notify,
     loadMarkets: () => loadMarkets(account),
     loadGenBal: () => loadGenBal(account),
@@ -238,7 +251,7 @@ export default function App() {
     isOwner: connected && account && owner && account.toLowerCase() === owner,
     isAdmin: connected && account && admins.includes(account.toLowerCase()),
     canManage: connected && account && (account.toLowerCase() === owner || admins.includes(account.toLowerCase())),
-    admins, loadAdmins,
+    admins, loadAdmins, loadSolvency,
   }
 
   return (
@@ -246,7 +259,7 @@ export default function App() {
       <Watermark/>
       <div className="app-content">
         <Header
-          account={account} connected={connected} genBal={genBal}
+          account={account} connected={connected} genBalWei={genBalWei}
           theme={theme} onThemeToggle={() => setTheme(t => t === 'light' ? 'dark' : 'light')}
           onConnect={connect} onDisconnect={disconnect}
           page={page} onNav={setPage}

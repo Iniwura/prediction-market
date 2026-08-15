@@ -1,15 +1,15 @@
 import React, { useState, useRef, useEffect } from 'react'
 import { writeContract, readContract, waitForTxStatus, pollForChange } from '../lib/gl.js'
-import { CONTRACT } from '../lib/config.js'
+import { CONTRACT, genToWei, weiToGen } from '../lib/config.js'
 
 const MAX_WIN   = 5      // matches contract MAX_WIN constant
+const MAX_WIN_WEI = 5000000000000000000n
+const MIN_BET_WEI = 100000000000000000n
 
 // Game payouts come back from the contract as raw wei integers.
 // Convert to a readable GEN amount before ever showing them on screen.
-function weiToGen(wei) {
-  const n = Number(wei) || 0
-  return (n / 1e18).toFixed(4).replace(/\.?0+$/, '') || '0'
-}
+// A non-zero payout means the parent committed an external message; it is
+// not a synchronous EOA delivery receipt.
 
 // Mochi, GenLayer's official mascot (CC0, genlayer-foundation/genlayer-mascot).
 // Used here purely for the win/loss reaction in each game's result screen.
@@ -115,14 +115,14 @@ function StatusCaption({ status }) {
 }
 
 // ── Local win/loss history (no on-chain history list exists) ───────────────
-function loadHistory(key) { try { return JSON.parse(localStorage.getItem('gm_hist_'+key) || '[]') } catch(e) { return [] } }
-function pushHistory(key, result) {
-  const h = loadHistory(key); h.unshift(result)
-  localStorage.setItem('gm_hist_'+key, JSON.stringify(h.slice(0, 10)))
+function loadHistory(account, key) { try { return JSON.parse(localStorage.getItem('gm_hist_'+(account || 'guest')+'_'+key) || '[]') } catch(e) { return [] } }
+function pushHistory(account, key, result) {
+  const h = loadHistory(account, key); h.unshift(result)
+  localStorage.setItem('gm_hist_'+(account || 'guest')+'_'+key, JSON.stringify(h.slice(0, 10)))
 }
-function HistoryStrip({ gameKey, refreshTick }) {
+function HistoryStrip({ account, gameKey, refreshTick }) {
   const [hist, setHist] = useState([])
-  useEffect(() => { setHist(loadHistory(gameKey)) }, [gameKey, refreshTick])
+  useEffect(() => { setHist(loadHistory(account, gameKey)) }, [account, gameKey, refreshTick])
   const slots = [...hist, ...Array(10 - hist.length).fill(null)].slice(0, 10)
   return (
     <div className="history-strip">
@@ -144,23 +144,25 @@ async function pollNewGame(account, prevRaw) {
   })
 }
 
-export default function Games({ account, connected, genBal, notify, onConnect }) {
+export default function Games({ account, connected, genBalWei, notify, onConnect }) {
   const [coinOpen, setCoinOpen] = useState(false)
   const [diceOpen, setDiceOpen] = useState(false)
   const [rpsOpen,  setRpsOpen]  = useState(false)
   const [tick,     setTick]     = useState(0)
 
-  const check = (amt, maxStake) => {
+  const check = (amt, maxStakeWei) => {
     if(!connected)  { notify('Connect wallet first','err'); return false }
-    if(amt<0.1)     { notify('Minimum bet is 0.1 GEN','err'); return false }
-    if(maxStake !== undefined && amt > maxStake) {
-      notify('Maximum stake for this target is '+maxStake.toFixed(4)+' GEN','err')
+    let valueWei
+    try { valueWei = genToWei(amt) } catch (e) { notify('Enter a valid GEN amount','err'); return false }
+    if(valueWei < MIN_BET_WEI) { notify('Minimum bet is 0.1 GEN','err'); return false }
+    if(maxStakeWei !== undefined && valueWei > maxStakeWei) {
+      notify('Maximum stake for this target is '+weiToGen(maxStakeWei, 4)+' GEN','err')
       return false
     }
     return true
   }
   const onGameEnd = (gameKey, resultStr) => {
-    if (gameKey && resultStr) pushHistory(gameKey, resultStr)
+    if (gameKey && resultStr) pushHistory(account, gameKey, resultStr)
     setTick(t => t+1)
   }
 
@@ -171,7 +173,7 @@ export default function Games({ account, connected, genBal, notify, onConnect })
         <div className="games-bal">
           <div>
             <div style={{fontSize:11,color:'var(--muted)',fontFamily:'var(--mono)',textTransform:'uppercase',letterSpacing:'.06em',marginBottom:4}}>Balance</div>
-            <div style={{fontSize:24,fontWeight:900,color:'var(--text)',fontFamily:'var(--head)',letterSpacing:'-.04em'}}>{(genBal ?? 0).toFixed(4)} <span style={{fontSize:14,fontWeight:500,color:'var(--text3)'}}>GEN</span></div>
+            <div style={{fontSize:24,fontWeight:900,color:'var(--text)',fontFamily:'var(--head)',letterSpacing:'-.04em'}}>{weiToGen(genBalWei, 4)} <span style={{fontSize:14,fontWeight:500,color:'var(--text3)'}}>GEN</span></div>
           </div>
           <div style={{fontSize:11,color:'var(--muted)',fontFamily:'var(--mono)',textAlign:'right',lineHeight:1.8}}>Min bet: 0.1 GEN<br/>Max win: 5 GEN</div>
         </div>
@@ -181,7 +183,7 @@ export default function Games({ account, connected, genBal, notify, onConnect })
             <div className="gcard-name">Coin Flip</div>
             <div className="gcard-desc">Call heads or tails. One flip, instant result. Win double your stake.</div>
             <div className="gcard-footer"><span className="gcard-odds">2× payout</span><button className="gcard-cta" onClick={e=>{e.stopPropagation();setCoinOpen(true)}}>Flip Now</button></div>
-            <HistoryStrip gameKey="coin" refreshTick={tick}/>
+            <HistoryStrip account={account} gameKey="coin" refreshTick={tick}/>
           </div>
           <div className="gcard gcard-dice" onClick={() => setDiceOpen(true)}>
             <div className="gcard-art">
@@ -194,14 +196,14 @@ export default function Games({ account, connected, genBal, notify, onConnect })
             <div className="gcard-name">Dice Roll</div>
             <div className="gcard-desc">Set your target. Pick over or under. Lower odds means higher multiplier.</div>
             <div className="gcard-footer"><span className="gcard-odds">Up to 100×</span><button className="gcard-cta" onClick={e=>{e.stopPropagation();setDiceOpen(true)}}>Roll Now</button></div>
-            <HistoryStrip gameKey="dice" refreshTick={tick}/>
+            <HistoryStrip account={account} gameKey="dice" refreshTick={tick}/>
           </div>
           <div className="gcard gcard-rps" onClick={() => setRpsOpen(true)}>
             <div className="gcard-art"><div className="gcard-rps-art" style={{display:'flex',alignItems:'center',justifyContent:'center'}}><div style={{width:38,height:38}} dangerouslySetInnerHTML={{__html:RPS_SVG.ROCK}}/></div></div>
             <div className="gcard-name">Rock Paper Scissors</div>
             <div className="gcard-desc">Challenge the house. Win 2× on victory. Draw and your stake returns.</div>
             <div className="gcard-footer"><span className="gcard-odds">2× or push</span><button className="gcard-cta" onClick={e=>{e.stopPropagation();setRpsOpen(true)}}>Play Now</button></div>
-            <HistoryStrip gameKey="rps" refreshTick={tick}/>
+            <HistoryStrip account={account} gameKey="rps" refreshTick={tick}/>
           </div>
         </div>
         <div className="mochi-credit">Mochi by GenLayer · CC0</div>
@@ -217,17 +219,17 @@ export default function Games({ account, connected, genBal, notify, onConnect })
           <button className="btn btn-primary" onClick={onConnect}>Connect Wallet</button>
         </div>
       )}
-      {coinOpen && <CoinModal account={account} genBal={genBal} check={check} notify={notify} onEnd={onGameEnd} onClose={() => setCoinOpen(false)}/>}
-      {diceOpen && <DiceModal account={account} genBal={genBal} check={check} notify={notify} onEnd={onGameEnd} onClose={() => setDiceOpen(false)}/>}
-      {rpsOpen  && <RpsModal  account={account} genBal={genBal} check={check} notify={notify} onEnd={onGameEnd} onClose={() => setRpsOpen(false)}/>}
+      {coinOpen && <CoinModal account={account} genBalWei={genBalWei} check={check} notify={notify} onEnd={onGameEnd} onClose={() => setCoinOpen(false)}/>}
+      {diceOpen && <DiceModal account={account} genBalWei={genBalWei} check={check} notify={notify} onEnd={onGameEnd} onClose={() => setDiceOpen(false)}/>}
+      {rpsOpen  && <RpsModal  account={account} genBalWei={genBalWei} check={check} notify={notify} onEnd={onGameEnd} onClose={() => setRpsOpen(false)}/>}
     </div>
   )
 }
 
 // ── COIN FLIP: spins continuously for the full wait, settles only once the real result lands ──
-function CoinModal({ account, genBal, check, notify, onEnd, onClose }) {
+function CoinModal({ account, genBalWei, check, notify, onEnd, onClose }) {
   const [side,setSide]=useState('HEADS')
-  const [amt,setAmt]=useState(1)
+  const [amt,setAmt]=useState('1')
   const [phase,setPhase]=useState('setup')
   const [result,setResult]=useState(null)
   const [txStatus,setTxStatus]=useState('')
@@ -262,13 +264,13 @@ function CoinModal({ account, genBal, check, notify, onEnd, onClose }) {
   })
 
   const play=async()=>{
-    if(!check(amt))return
+    if(!check(amt, MAX_WIN_WEI / 2n))return
     setPhase('playing'); setTxStatus('')
     angleRef.current = 0
     spinForever()
     try {
       const prevRaw = await getLastGameRaw(account)
-      const valueWei = BigInt(Math.round(amt * 1e18))
+      const valueWei = genToWei(amt)
       const hash = await writeContract(CONTRACT, account, 'play_coinflip', [side], false, valueWei)
       waitForTxStatus(hash, setTxStatus).catch(()=>{})
       const gr = await pollNewGame(account, prevRaw) // coin keeps spinning the whole time this awaits
@@ -288,7 +290,7 @@ function CoinModal({ account, genBal, check, notify, onEnd, onClose }) {
             <button className={`gm-side-btn${side==='HEADS'?' on':''}`} onClick={()=>setSide('HEADS')} style={side==='HEADS'?{color:'var(--amber)',borderColor:'var(--amber)',background:'rgba(245,158,11,.1)'}:{}}>Heads ♦</button>
             <button className={`gm-side-btn${side==='TAILS'?' on':''}`} onClick={()=>setSide('TAILS')} style={side==='TAILS'?{color:'var(--amber)',borderColor:'var(--amber)',background:'rgba(245,158,11,.1)'}:{}}>Tails ★</button>
           </div>
-          <div className="gm-stake"><label>Stake</label><input type="number" value={amt} min="0.1" step="0.1" onChange={e=>setAmt(parseFloat(e.target.value)||0)}/><span className="gm-bal">{(genBal ?? 0).toFixed(4)} GEN</span></div>
+          <div className="gm-stake"><label>Stake</label><input type="number" value={amt} min="0.1" step="0.1" onChange={e=>setAmt(e.target.value)}/><span className="gm-bal">{weiToGen(genBalWei, 4)} GEN</span></div>
           <button className="gm-play-btn gm-play-coin" onClick={play}>Flip the Coin</button>
         </>}
         {phase==='playing'&&<>
@@ -302,7 +304,7 @@ function CoinModal({ account, genBal, check, notify, onEnd, onClose }) {
             <div className={`gm-badge ${won?'gm-win':'gm-lose'}`}>{won?'You Win':'You Lose'}</div>
             <div className="gm-res-title" style={{color:won?'var(--teal)':'var(--red)'}}>{result.outcome}</div>
             <div className="gm-res-sub">{won?'+'+weiToGen(result.payout)+' GEN':'–'+amt+' GEN'}</div>
-            {won && <div style={{fontSize:10.5,color:'var(--muted)',textAlign:'center',marginTop:6,fontFamily:'var(--mono)',lineHeight:1.5}}>GEN sent, allow ~30 min for finality to fully reflect in your wallet</div>}
+            {won && <div style={{fontSize:10.5,color:'var(--muted)',textAlign:'center',marginTop:6,fontFamily:'var(--mono)',lineHeight:1.5}}>Payout message committed; external delivery runs at finalization</div>}
           </div>
           <div className="gm-btns">
             <button className="btn btn-outline" onClick={()=>{setPhase('setup');setResult(null)}} style={{flex:1}}>Play Again</button>
@@ -315,10 +317,10 @@ function CoinModal({ account, genBal, check, notify, onEnd, onClose }) {
 }
 
 // ── DICE ROLL: marker sweeps continuously while waiting, settles on the real roll ──
-function DiceModal({ account, genBal, check, notify, onEnd, onClose }) {
+function DiceModal({ account, genBalWei, check, notify, onEnd, onClose }) {
   const [dir,setDir]=useState('UNDER')
   const [target,setTgt]=useState(50)
-  const [amt,setAmt]=useState(1)
+  const [amt,setAmt]=useState('1')
   const [phase,setPhase]=useState('setup')
   const [result,setResult]=useState(null)
   const [txStatus,setTxStatus]=useState('')
@@ -342,13 +344,13 @@ function DiceModal({ account, genBal, check, notify, onEnd, onClose }) {
   useEffect(() => () => stopSweep(), [])
 
   const play=async()=>{
-    const ms=Math.max(0.1,(MAX_WIN*target)/100);
-    if(!check(amt,ms))return
+    const maxStakeWei = (MAX_WIN_WEI * BigInt(target)) / 100n
+    if(!check(amt, maxStakeWei))return
     setPhase('playing'); setTxStatus(''); setMarkerState('')
     startSweep()
     try {
       const prevRaw = await getLastGameRaw(account)
-      const valueWei = BigInt(Math.round(amt * 1e18))
+      const valueWei = genToWei(amt)
       const hash = await writeContract(CONTRACT, account, 'play_dice', [dir, target], false, valueWei)
       waitForTxStatus(hash, setTxStatus).catch(()=>{})
       const g = await pollNewGame(account, prevRaw) // marker keeps sweeping the whole time this awaits
@@ -394,7 +396,7 @@ function DiceModal({ account, genBal, check, notify, onEnd, onClose }) {
             <div className="dice-stat"><div className="dice-stat-lbl">Win chance</div><div className="dice-stat-val">{pct}%</div></div>
             <div className="dice-stat"><div className="dice-stat-lbl">Multiplier</div><div className="dice-stat-val">{mult}×</div></div>
           </div>
-          <div className="gm-stake"><label>Stake</label><input type="number" value={amt} min="0.1" step="0.1" onChange={e=>setAmt(parseFloat(e.target.value)||0)}/><span className="gm-bal">{(genBal ?? 0).toFixed(4)} GEN</span></div>
+          <div className="gm-stake"><label>Stake</label><input type="number" value={amt} min="0.1" step="0.1" onChange={e=>setAmt(e.target.value)}/><span className="gm-bal">{weiToGen(genBalWei, 4)} GEN</span></div>
           <button className="gm-play-btn gm-play-dice" onClick={play}>Roll the Dice</button>
         </>}
 
@@ -416,7 +418,7 @@ function DiceModal({ account, genBal, check, notify, onEnd, onClose }) {
             <div className={`gm-badge ${result.result==='WIN'?'gm-win':'gm-lose'}`}>{result.result==='WIN'?'You Win':'You Lose'}</div>
             <div className="gm-res-title" style={{color:result.result==='WIN'?'var(--teal)':'var(--red)'}}>Rolled {result.roll}</div>
             <div className="gm-res-sub">{result.result==='WIN'?'+'+weiToGen(result.payout)+' GEN':'Needed '+(dir==='UNDER'?`0–${target-1}`:`${target}–99`)}</div>
-            {result.result==='WIN' && <div style={{fontSize:10.5,color:'var(--muted)',textAlign:'center',marginTop:6,fontFamily:'var(--mono)',lineHeight:1.5}}>GEN sent, allow ~30 min for finality to fully reflect in your wallet</div>}
+            {result.result==='WIN' && <div style={{fontSize:10.5,color:'var(--muted)',textAlign:'center',marginTop:6,fontFamily:'var(--mono)',lineHeight:1.5}}>Payout message committed; external delivery runs at finalization</div>}
           </div>
           <div className="gm-btns">
             <button className="btn btn-outline" onClick={()=>{setPhase('setup');setResult(null)}} style={{flex:1}}>Play Again</button>
@@ -429,9 +431,9 @@ function DiceModal({ account, genBal, check, notify, onEnd, onClose }) {
 }
 
 // ── RPS: hands bounce and house "thinks" through choices the whole wait ──
-function RpsModal({ account, genBal, check, notify, onEnd, onClose }) {
+function RpsModal({ account, genBalWei, check, notify, onEnd, onClose }) {
   const [choice,setChoice]=useState('ROCK')
-  const [amt,setAmt]=useState(1)
+  const [amt,setAmt]=useState('1')
   const [phase,setPhase]=useState('setup')
   const [result,setResult]=useState(null)
   const [txStatus,setTxStatus]=useState('')
@@ -447,11 +449,11 @@ function RpsModal({ account, genBal, check, notify, onEnd, onClose }) {
   }, [phase])
 
   const play=async()=>{
-    if(!check(amt))return
+    if(!check(amt, MAX_WIN_WEI / 2n))return
     setPhase('playing'); setTxStatus('')
     try {
       const prevRaw = await getLastGameRaw(account)
-      const valueWei = BigInt(Math.round(amt * 1e18))
+      const valueWei = genToWei(amt)
       const hash = await writeContract(CONTRACT, account, 'play_rps', [choice], false, valueWei)
       waitForTxStatus(hash, setTxStatus).catch(()=>{})
       const cdP=(async()=>{for(const n of ['3','2','1','GO!']){setCd(n);await new Promise(r=>setTimeout(r,n==='GO!'?400:650))}setCd('')})()
@@ -477,7 +479,7 @@ function RpsModal({ account, genBal, check, notify, onEnd, onClose }) {
               </button>
             ))}
           </div>
-          <div className="gm-stake"><label>Stake</label><input type="number" value={amt} min="0.1" step="0.1" onChange={e=>setAmt(parseFloat(e.target.value)||0)}/><span className="gm-bal">{(genBal ?? 0).toFixed(4)} GEN</span></div>
+          <div className="gm-stake"><label>Stake</label><input type="number" value={amt} min="0.1" step="0.1" onChange={e=>setAmt(e.target.value)}/><span className="gm-bal">{weiToGen(genBalWei, 4)} GEN</span></div>
           <button className="gm-play-btn gm-play-rps" onClick={play}>Play!</button>
         </>}
         {phase==='playing'&&<>
@@ -504,8 +506,8 @@ function RpsModal({ account, genBal, check, notify, onEnd, onClose }) {
             <MochiReaction result={won?'win':tie?'tie':'lose'}/>
             <div className={`gm-badge ${won?'gm-win':tie?'gm-tie':'gm-lose'}`}>{won?'You Win':tie?'Tie':'You Lose'}</div>
             <div className="gm-res-title" style={{color:won?'var(--teal)':tie?'var(--indigo)':'var(--red)'}}>{won?choice+' beats '+result.house:tie?'Both played '+choice:result.house+' beats '+choice}</div>
-            <div className="gm-res-sub">{won?'+'+weiToGen(result.payout)+' GEN':tie?'Stake returned':'Better luck next time'}</div>
-            {won && <div style={{fontSize:10.5,color:'var(--muted)',textAlign:'center',marginTop:6,fontFamily:'var(--mono)',lineHeight:1.5}}>GEN sent, allow ~30 min for finality to fully reflect in your wallet</div>}
+            <div className="gm-res-sub">{result.payout>0?'+'+weiToGen(result.payout)+' GEN':'Better luck next time'}</div>
+            {result.payout>0 && <div style={{fontSize:10.5,color:'var(--muted)',textAlign:'center',marginTop:6,fontFamily:'var(--mono)',lineHeight:1.5}}>Payout message committed; external delivery runs at finalization</div>}
           </div>
           <div className="gm-btns">
             <button className="btn btn-outline" onClick={()=>{setPhase('setup');setResult(null);setShowImpact(false)}} style={{flex:1}}>Play Again</button>

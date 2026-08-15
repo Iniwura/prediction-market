@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react'
-import { sh } from '../lib/config.js'
+import { sh, weiToGen } from '../lib/config.js'
 
 const Logo = () => (
   <svg width="26" height="26" viewBox="0 0 26 26" fill="none">
@@ -33,7 +33,7 @@ const NOTIF_ICON = {
   cancelled: { glyph: '!', color: 'var(--muted)' },
 }
 
-export default function Header({ account, connected, genBal, theme, onThemeToggle, onConnect, onDisconnect, page, onNav, notifications=[], onMarkNotifsRead, isOwner }) {
+export default function Header({ account, connected, genBalWei, theme, onThemeToggle, onConnect, onDisconnect, page, onNav, notifications=[], onMarkNotifsRead, isOwner }) {
   const [menuOpen,  setMenuOpen]  = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
   const notifRef = useRef(null)
@@ -79,7 +79,7 @@ export default function Header({ account, connected, genBal, theme, onThemeToggl
           {!connected && <button className="btn btn-primary btn-sm hide-xs" onClick={onConnect}>Connect Wallet</button>}
           {connected && <>
             <div className="wpill" onClick={() => go('profile')}>
-              <span className="wpill-bal">{(genBal ?? 0).toFixed(2)} GEN</span>
+              <span className="wpill-bal">{weiToGen(genBalWei, 2)} GEN</span>
               <span className="wpill-dot"/>
               <span className="wpill-addr">{sh(account)}</span>
             </div>

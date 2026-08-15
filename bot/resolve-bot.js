@@ -1,21 +1,19 @@
 // Gen Markets resolve-and-schedule bot.
 //
 // Two jobs, each run:
-//   1. Resolve any OPEN market whose deadline has passed.
+//   1. Resolve any OPEN market whose on-chain deadline has passed.
 //   2. Keep exactly one OPEN market running per schedule type (daily,
 //      weekly, monthly) — if a type has no OPEN market right now, create
 //      one. This self-heals: the moment job 1 resolves an expired daily
 //      market, the next run sees no OPEN daily market and creates the
-//      next one. No clock math needed, since GenVM's on-chain timestamp
-//      isn't reliable (see genlayer-intelligent-contracts skill notes),
-//      "is one currently OPEN" is checked directly instead of inferred
-//      from a creation timestamp.
+//      next one. The contract derives scheduled deadlines from its
+//      deterministic transaction clock; the bot only uses deadline_ts to
+//      avoid submitting obviously early resolve transactions.
 //
 // The wallet running this must already be added as an admin via
-// admin_add (owner-only) for job 1 — resolve_market checks owner-or-admin
-// on-chain, this script does not bypass that. Job 2's create_*_market
-// functions are public with no fee, admin isn't required for those, the
-// bot just happens to already have it.
+// admin_add (owner-only) for job 2 — scheduled market creation is
+// owner/admin-gated. Resolution itself is permissionless after the
+// contract deadline, so any funded account can call it.
 //
 // Env vars required:
 //   BOT_PRIVATE_KEY     private key of the admin wallet, gas-funded only
@@ -33,7 +31,8 @@ const PRIVATE_KEY  = process.env.BOT_PRIVATE_KEY
 const MAX_PER_RUN  = 2   // throttled on purpose, see design notes below
 
 const SCHEDULE_TYPES = ['daily', 'weekly', 'monthly']
-const SCHEDULE_MS    = { daily: 86400000, weekly: 86400000 * 7, monthly: 86400000 * 30 }
+// Scheduled deadlines are derived inside the contract from deterministic
+// transaction time; the bot never supplies an authoritative timestamp.
 
 if (!CONTRACT || !PRIVATE_KEY) {
   console.error('Missing required env var: CONTRACT_ADDRESS or BOT_PRIVATE_KEY')
@@ -43,15 +42,12 @@ if (!CONTRACT || !PRIVATE_KEY) {
 const account = createAccount(PRIVATE_KEY)
 const client  = createClient({ chain: testnetBradbury, account })
 
-// Deadlines are stored as toUTCString() output, same format the frontend
-// already relies on (see MarketCard.jsx isDeadlinePassed). Mirrored here
-// rather than imported since this script runs standalone in CI, outside
-// the Vite build.
-function isDeadlinePassed(raw) {
-  if (!raw || raw === 'No deadline') return false
-  const t = Date.parse(raw)
-  if (isNaN(t)) return false
-  return Date.now() > t
+// deadline_ts is Unix seconds. Mirrored here rather than imported since this
+// script runs standalone in CI, outside the Vite build. It is only a local
+// preflight; the contract re-checks its own clock.
+function isDeadlinePassed(deadlineTs) {
+  const ts = Number.parseInt(String(deadlineTs || '0'), 10)
+  return Number.isFinite(ts) && ts > 0 && Math.floor(Date.now() / 1000) >= ts
 }
 
 async function getMarkets() {
@@ -66,7 +62,7 @@ async function getMarkets() {
 }
 
 async function resolveExpired(markets) {
-  const expired = markets.filter(m => m.status === 'OPEN' && isDeadlinePassed(m.deadline))
+  const expired = markets.filter(m => m.status === 'OPEN' && isDeadlinePassed(m.deadline_ts))
   console.log(`${markets.length} total markets, ${expired.length} OPEN and past deadline`)
   if (expired.length === 0) return
 
@@ -104,14 +100,12 @@ async function keepScheduledMarketsRunning(markets) {
       continue
     }
 
-    const deadlineStr    = new Date(Date.now() + SCHEDULE_MS[type]).toUTCString()
-    const currentDateStr = new Date().toUTCString()
     console.log(`${type}: no OPEN market, creating one`)
     try {
       const hash = await client.writeContract({
         address: CONTRACT,
         functionName: `create_${type}_market`,
-        args: [deadlineStr, currentDateStr],
+        args: ['', new Date().toUTCString()],
         value: 0n,
       })
       console.log(`  submitted: ${hash}`)

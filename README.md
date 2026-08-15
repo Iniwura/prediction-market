@@ -1,255 +1,89 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/genlayer-foundation/genlayer-design/main/assets/GenLayer_Mark_White.svg" width="48" height="48" alt="GenLayer Mark"/>
-
 # Gen Markets
 
-**Prediction market dApp built on GenLayer Bradbury Testnet**
+**Prediction markets and quick games on GenLayer Bradbury Testnet**
 
-[![Live Demo](https://img.shields.io/badge/Live%20Demo-prediction--market--eight--mocha.vercel.app-6366F1?style=flat-square&logo=vercel)](https://prediction-market-eight-mocha.vercel.app)
 [![Built on GenLayer](https://img.shields.io/badge/Built%20on-GenLayer-110FFF?style=flat-square)](https://genlayer.com)
 [![Network](https://img.shields.io/badge/Network-Bradbury%20Testnet-9B6AF6?style=flat-square)](https://explorer-bradbury.genlayer.com)
 
 </div>
 
----
+Gen Markets is a React/Vite dApp backed by a GenLayer Intelligent Contract. Markets use real GEN stakes, validator consensus for AI-generated odds and settlement, and an on-chain custody ledger for unclaimed liabilities and committed external payouts.
 
-## What it is
+## Safety model
 
-Gen Markets is a prediction market platform running on GenLayer Bradbury. The AI sets opening odds, generates fresh markets on a schedule, and resolves outcomes through on-chain validator consensus. Every bet, payout, and market fee moves in real GEN. No internal points ledger, no oracle, no off-chain resolution.
+- `book_balance` is the synchronous economic ledger. Payable ingress increases it; every outbound message decreases it when committed. `reserved_liabilities` is the sum of every unclaimed bet/refund liability. A bet increases it; a resolution replaces the market's stake liability with the exact winner payout liability; claims and refunds decrease it only after the parent transaction has emitted and committed the external payout message. Successful transitions preserve `book_balance >= reserved_liabilities`.
+- Contract-funded games must pass a maximum-payout solvency check before randomness is consumed. Market liabilities cannot be spent on games, user transfers, or owner withdrawals.
+- `get_solvency()` and `get_surplus()` expose observed chain balance separately from book balance, reserved liabilities, economically available surplus, cumulative committed outbound value, and a solvent flag. `withdraw(amount_wei)` is owner-only and can withdraw only positive amounts within the current book surplus; stale `self.balance` cannot authorize a second withdrawal while an earlier message is pending.
+- Payout/refund transfers use the GenLayer EVM `_Recipient` interface. `emit_transfer` queues an external message for finalization and deducts/holds the value when emitted; it is not synchronous EOA delivery, and a child failure does not automatically return the value. The parent marks the payout committed exactly once after emission, with no documented EOA delivery acknowledgement or automatic retry.
 
----
+## Market lifecycle
 
-## Features
+Manual creation requires exactly `0.5 GEN`, a future `deadline_ts`, 2–6 unique outcomes, and an HTTPS evidence URL. Bets are payable, require at least `0.1 GEN`, and are rejected at or after the on-chain deadline.
 
-**Prediction Markets**
-- Manual market creation and daily/weekly/monthly auto-generation live in the owner-only Admin tab
-- 0.5 GEN fee on manual creation, paid to the contract; auto-generated markets are free
-- AI sets opening probabilities inside the same transaction as market creation
-- A background bot keeps one open daily/weekly/monthly market running at all times, no manual trigger needed
-- Place predictions with real GEN as the stake
-- AI evaluates evidence and resolves markets through GenLayer validator consensus
-- Resolution and cancellation are owner-or-admin; refunds are bettor-only
-- Cancelled markets return the original GEN stake to each bettor
+`resolve_market(market_id)` is permissionless after the contract's deterministic deadline. The resolver fetches rendered evidence, fences it as untrusted data, and accepts only an exact configured outcome under `strict_eq` consensus. Missing, empty, or failed evidence returns `PENDING` and leaves the market open; validators never settle from model memory.
 
-**Multi-Admin Access**
-- Owner is a permanent, separate role, always able to manage the admin list
-- Owner can add or remove admin wallets from the Admin tab
-- Admins can resolve, cancel, and create markets alongside the owner
-- Admins never touch contract funds, `withdraw()` stays owner-only regardless of admin status
+Owner/admin cancellation is allowed only before the deadline. Cancellation preserves the full refund reserve; each bettor calls `refund(market_id)` once. Expired markets must be resolved, not cancelled.
 
-**Autonomous Resolve Bot**
-- A dedicated gas-funded wallet, added as an admin, runs on a GitHub Actions schedule (`bot/resolve-bot.js`)
-- Every run: resolves any market past its deadline, then tops up any schedule type (daily/weekly/monthly) that doesn't currently have an open market
-- Self-healing, the moment a scheduled market resolves, the next run creates its replacement, no manual intervention
-- Fully separable credentials, the bot's private key lives only in GitHub Actions secrets, never in the repo
-
-**Personalized Notifications**
-- The bell dropdown surfaces your actual bet outcomes, not a log of every action in the app
-- Shows: bet won (claim available), bet lost, market awaiting resolution, market cancelled (refund available)
-- Items are derived live from on-chain state and disappear once claimed, not a growing history
-
-**Quick Games**
-- Coin Flip: call heads or tails, win 2x your stake
-- Dice Roll: set a target, pick over/under, multiplier scales with win probability
-- Rock Paper Scissors: beat the house for 2x, ties return your stake
-- Minimum stake 0.1 GEN, maximum win capped at 5 GEN per game (protects the house bankroll)
-- Win/loss history shown per game card, feeds into the global leaderboard
-
-**Profile and Rankings**
-- Claim an on-chain username (3-20 chars, alphanumeric + underscore)
-- Send real GEN to any wallet address or @username directly from your profile
-- XP from wins drives the leaderboard, combined across markets and games
-- Rank badges: Rookie, Trader, Shark, Whale, Legend, based on XP
-- Streak tracking for current and best winning run
-
----
-
-## Architecture
-
-```
-React + Vite (Vercel)
-  Markets / Games / Rankings / Profile
-        |
-        | genlayer-js SDK (real GEN value transfers)
-        |
-GenLayer Bradbury Testnet
-  Contract    0x4c6a92E2B3BC91330018D242A011FB55827B7C02
-  RPC         https://rpc-bradbury.genlayer.com
-  Explorer    https://explorer-bradbury.genlayer.com
-```
-
-**Key technical decisions**
-
-`transaction_hash_variant: 'latest-nonfinal'` on every read is critical. Without it, reads only return finalized state and contract updates from `ACCEPTED` consensus stay invisible until the finality window closes (around 30 minutes).
-
-Every write uses `genlayer-js`, GenLayer's official SDK, rather than hand-built calldata. This matters specifically for GEN value transfers, where the SDK correctly forwards `value` into `gl.message.value` inside the contract.
-
-Sending GEN out of the contract uses `_Recipient`/`@gl.evm.contract_interface`, confirmed against a live, currently-deployed GenLayer contract processing real payouts with this exact pattern. `gl.ContractAt(...)` and `gl.message.recipient_transfer(...)` were both tried and do not reliably work for this on Bradbury.
-
-Each write function has at most one `gl.eq_principle` call. Nesting consensus calls causes GenVM `exit_code 1`. Functions passed to `prompt_non_comparative` capture exactly one pre-built string; multi-variable closures also cause `exit_code 1`.
-
-`resolve_market` is owner-or-admin gated with no on-chain clock check at all. The caller has already decided the deadline passed before triggering it, so the AI referee prompt is told explicitly not to reason about timing, just to read the evidence and decide the outcome. An earlier version tried fetching a live time API from inside the resolve prompt for an unambiguous "now" reference; that added an extra unreliable network call for no real benefit once the function was already access-controlled, and was removed.
-
----
+Scheduled daily, weekly, and monthly market creation is owner/admin-gated. The contract derives deadlines as 24 hours, 7 days, and 30 days from its own transaction clock; browser-supplied deadline text is display-only. The scheduled generator validates/falls back to safe HTTPS evidence and sanitizes generated outcomes.
 
 ## Contract
 
-**Address:** `0x4c6a92E2B3BC91330018D242A011FB55827B7C02`
+**Address:** `0x3394DEC637eFf4836712ACfa74c0b054885539d8`
 **Network:** GenLayer Bradbury Testnet
-**Language:** Python Intelligent Contract (GenLayer GenVM)
 **Source:** [`prediction_market.py`](./prediction_market.py)
 
-### Public methods
+| Method | Access | Notes |
+|---|---|---|
+| `create_market(question, outcomes_csv, evidence_url, deadline_note, deadline_ts)` | Anyone, payable | Exact `0.5 GEN` fee; deadline is on-chain Unix seconds |
+| `create_daily_market(deadline_note, current_date_note)` | Owner/admin | Deadline derived in contract |
+| `create_weekly_market(deadline_note, current_date_note)` | Owner/admin | Deadline derived in contract |
+| `create_monthly_market(deadline_note, current_date_note)` | Owner/admin | Deadline derived in contract |
+| `place_bet(market_id, outcome)` | Anyone, payable | Exact GEN value becomes reserved liability |
+| `resolve_market(market_id)` | Anyone after deadline | Consensus settlement; evidence failure remains pending |
+| `claim_winnings(market_id)` | Winning bettor | External message committed, then claim-state update; no EOA delivery acknowledgement |
+| `cancel_market(market_id)` | Owner/admin before deadline | Full refunds remain reserved |
+| `refund(market_id)` | Bettor | External message committed, then refund-state update; no EOA delivery acknowledgement |
+| `refresh_odds(market_id)` | Anyone while open | Existing bets and liabilities unchanged |
+| `play_coinflip(side)` / `play_dice(direction, target)` / `play_rps(choice)` | Anyone, payable | 0.1 GEN minimum, 5 GEN maximum win, solvency guarded; winning/tie payout is an external message commitment |
+| `send_gen(recipient)` | Anyone, payable | Cannot spend reserved liabilities; recipient delivery is external/finalization-time |
+| `fund()` | Anyone, payable | Adds house bankroll |
+| `withdraw(amount_wei)` | Owner | Surplus-only external message commitment |
+| `get_solvency()` | View | Custody health summary |
 
-| Method | Access | What it does |
-|--------|--------|--------------|
-| `create_market(question, outcomes_csv, evidence_url, deadline_note, deadline_ts)` | Anyone, 0.5 GEN fee | Creates market and sets AI odds in the same tx |
-| `create_daily_market(deadline_note)` | Anyone | AI generates daily crypto/DeFi question and odds |
-| `create_weekly_market(deadline_note)` | Anyone | AI generates weekly question and odds |
-| `create_monthly_market(deadline_note)` | Anyone | AI generates monthly macro question and odds |
-| `place_bet(market_id, outcome)` | Anyone, payable | Place a prediction, GEN sent as tx value |
-| `resolve_market(market_id)` | Owner or admin | AI evaluates the market and sets the winner |
-| `claim_winnings(market_id)` | Bettor | Claim GEN payout on a won prediction |
-| `cancel_market(market_id)` | Owner or admin | Cancel a market |
-| `refund(market_id)` | Bettor | Claim GEN refund on a cancelled market |
-| `refresh_odds(market_id)` | Anyone | Re-run AI odds using live evidence, existing bets untouched |
-| `admin_add(address)` | Owner only | Grant an address resolve/cancel/create access |
-| `admin_remove(address)` | Owner only | Revoke an address's admin access |
-| `get_admins()` | View | List current admin addresses |
-| `play_coinflip(side)` | Anyone, payable | Coin flip game |
-| `play_dice(direction, target)` | Anyone, payable | Dice roll game |
-| `play_rps(choice)` | Anyone, payable | Rock Paper Scissors |
-| `set_username(name)` | Anyone | Claim an on-chain username |
-| `send_gen(recipient)` | Anyone, payable | Send GEN to an address or username |
-| `fund()` | Anyone, payable | Add GEN to the house bankroll |
-| `withdraw()` | Owner only | Withdraw the full contract GEN balance, never available to admins |
+The contract uses one consensus call per write path, `strict_eq` for discrete settlement/randomness, and `_Recipient.emit_transfer` for outbound GEN. A cumulative `committed_outbound` counter records parent-side external-message commitments for auditability; it is not a delivery receipt and is not subtracted from observed balance because finalized messages would then be double-counted. `deadline_ts` is the authority; `deadline_note` is human-readable metadata only.
 
-### AI methods
+## Frontend and bot
 
-| Method | Principle | What it does |
-|--------|-----------|--------------|
-| `_generate_odds` | `prompt_non_comparative` | Sets opening probabilities for any market |
-| `_ai_generate_market` | `prompt_non_comparative` | Generates question and odds together in one consensus call |
-| `resolve_market` via `get_verdict` | `strict_eq` | All validators must agree on the winner independently |
-| `_roll` via `get_entropy` | `strict_eq` | Mixes drand beacon randomness into the game RNG seed |
+The frontend uses `genlayer-js`, `latest-nonfinal` reads, exact decimal-to-wei `BigInt` helpers, transaction-status polling, and state polling before showing a parent write/message commitment as confirmed. For external payouts, this status is not an EOA delivery receipt. Wallet-scoped notification/history keys prevent cross-account leakage.
 
-### Economics
+`bot/resolve-bot.js` is optional. Its GitHub Actions workflow uses a read-only contents permission, a concurrency lock, and a ten-minute timeout. The bot resolves expired markets (resolution is permissionless) and invokes scheduled creation using its owner/admin wallet. It never withdraws funds or manages admins. Keep `BOT_PRIVATE_KEY` and `CONTRACT_ADDRESS` in CI secrets only.
 
-- Market creation fee: 0.5 GEN, fixed
-- Minimum stake (bets and games): 0.1 GEN
-- Maximum win per game: 5 GEN
-- House fee on arbitrated disputes: not applicable to this contract
-
----
-
-## Frontend
-
-**Stack:** React 18, Vite, `genlayer-js`, pure CSS, MetaMask via `window.ethereum`, Vercel
-
-```
-gm/
-├── src/
-│   ├── lib/
-│   │   ├── config.js          # Contract address, chain config, helpers
-│   │   └── gl.js              # genlayer-js client, readContract, writeContract
-│   ├── components/
-│   │   ├── Header.jsx         # Nav, wallet pill, notification bell, theme toggle
-│   │   ├── Home.jsx           # Hero, live stats ticker
-│   │   ├── Markets.jsx        # Market list, betting, resolve/cancel actions
-│   │   ├── MarketCard.jsx     # Market card with outcomes and probabilities
-│   │   ├── Admin.jsx          # Owner-only: market creation, admin list management
-│   │   ├── Games.jsx          # Coin flip, dice, RPS with continuous animations
-│   │   ├── Leaderboard.jsx    # XP rankings with win rate
-│   │   ├── Profile.jsx        # Stats, bet history, claim/refund, send GEN, username
-│   │   ├── Toast.jsx          # Notification toasts
-│   │   └── Ticker.jsx         # Scrolling stats bar
-│   ├── App.jsx                # Wallet connection, state, routing
-│   ├── ErrorBoundary.jsx      # Catches render crashes, shows recoverable screen
-│   ├── index.css              # Design system
-│   └── main.jsx
-├── bot/
-│   └── resolve-bot.js         # Autonomous resolver, run by GitHub Actions on a schedule
-├── .github/workflows/
-│   └── resolve-bot.yml        # Cron trigger for the resolve bot
-├── prediction_market.py       # Intelligent Contract source
-├── vercel.json
-└── vite.config.js
-```
-
-**Design**
-- Dark by default (`#080B18` background)
-- Light mode uses a warm off-white (`#F8F6F0`) from GenLayer's parchment palette
-- Brand gradient `#E37DF7 / #9B6AF6 / #110FFF` from the official GenLayer design system
-- Fonts: Syne for display, DM Sans for body, DM Mono for data
-- Background watermark uses the real GenLayer SVG mark with the official animated gradient treatment
-- Mochi (GenLayer's official CC0 mascot) appears on game result screens
-
----
-
-## Running locally
+## Local development
 
 ```bash
-git clone https://github.com/Iniwura/prediction-market.git
-cd prediction-market
-npm install
+npm ci
 npm run dev
 ```
 
-MetaMask required. Add GenLayer Bradbury manually:
+MetaMask should be connected to GenLayer Bradbury (`https://rpc-bradbury.genlayer.com`, chain ID `4221` / `0x107D`). Test GEN is available from the [GenLayer faucet](https://testnet-faucet.genlayer.foundation/).
 
-| Field | Value |
-|-------|-------|
-| Network Name | GenLayer Bradbury |
-| RPC URL | `https://rpc-bradbury.genlayer.com` |
-| Chain ID | `4221` (0x107D) |
-| Currency | GEN |
-| Explorer | `https://explorer-bradbury.genlayer.com` |
-
-Get testnet GEN from the [GenLayer faucet](https://testnet-faucet.genlayer.foundation/).
-
----
-
-## Deployment
-
-Push to `main` and Vercel deploys automatically. The frontend talks to GenLayer's public RPC endpoint directly via `genlayer-js`, no server-side proxy involved.
-
----
-
-## Autonomous resolve bot
-
-`bot/resolve-bot.js` runs on a GitHub Actions schedule (every 10 minutes, see `.github/workflows/resolve-bot.yml`), signed by a dedicated wallet added as a contract admin via `admin_add`. Each run it resolves any market past its deadline, then creates a fresh daily/weekly/monthly market for any schedule type that doesn't currently have one open. It never calls `withdraw()` and holds no owner privileges, only what `admin_add` grants.
-
-To run it yourself:
+Run contract tests and lint:
 
 ```bash
-cd bot
-npm install
-BOT_PRIVATE_KEY=0x... CONTRACT_ADDRESS=0x... npm run resolve
+py -m pytest -q
+genvm-lint check prediction_market.py
 ```
 
-In production the two env vars are GitHub repository secrets (`BOT_PRIVATE_KEY`, `CONTRACT_ADDRESS`), never committed to the repo.
+The Direct Mode tests cover deadline enforcement, exact liability accounting, cancellation/refund reserve behavior, surplus-only withdrawal, permissionless settlement structure, and single-commit state ordering after parent message emission. Direct Mode does not execute external EOA messages at finalization or simulate child failure/delivery, so live Bradbury verification is still required for outbound transfer settlement.
 
----
+## Known residual risks and validation status
 
-## Known testnet limitations
+Drand is public/timing-sensitive; it improves game entropy over a nonce but is not commit-reveal-grade randomness. Web evidence can be stale or unavailable, in which case settlement remains pending. External EOA GEN messages have a residual finalization/delivery risk: parent emission is deterministic, but the child executes later and a failed child does not auto-refund the sender; this contract therefore makes each payout terminal after emission and does not offer retry safety or claim a delivery callback. The pinned SDK exposes an errored-message hook for failed message execution, but no documented EOA success/delivery acknowledgement is available, so the payout path does not depend on it. The frontend build requires a normal Vite/esbuild environment; this repository's sandbox validation may be unable to traverse the external Downloads path. Before real-value use, run Bradbury integration tests for payable ingress, `_Recipient` payouts/refunds, deadline clock behavior, undercollateralized transactions, and finalization failure behavior.
 
-`gl.message_raw["timestamp"]` is not reliably populated in this GenVM version so `_now()` falls back to `0`. Deadlines are stored as absolute UTC strings calculated client-side rather than relying on on-chain time.
+No deployment, commit, push, merge, or history rewrite is performed by the maintenance workflow.
 
-Game randomness mixes in a drand beacon value which raises the bar over a pure nonce, but drand is public so it's not a cryptographic guarantee. A commit-reveal scheme would be needed before these games handle stakes with real-world value beyond testnet GEN.
+## Stack
 
-The contract holds a house bankroll funded via `fund()`. Game payouts and market winnings are only guaranteed if the contract balance covers them; the owner is responsible for keeping it funded.
-
----
-
-## Built with
-
-- [GenLayer](https://genlayer.com)
-- [GenLayer Bradbury Testnet](https://explorer-bradbury.genlayer.com)
-- [GenLayer Design System](https://github.com/genlayer-foundation/genlayer-design)
-- [Mochi Mascot](https://github.com/genlayer-foundation/genlayer-mascot) (CC0)
-- React, Vite, Vercel, genlayer-js
-
----
-
-<div align="center">Built on GenLayer · Bradbury Testnet Phase 1</div>
+GenLayer Intelligent Contracts · React 18 · Vite · `genlayer-js` · MetaMask · GitHub Actions · Vercel

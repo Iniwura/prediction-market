@@ -1,14 +1,16 @@
 import React, { useState, useEffect } from 'react'
-import { readContract, writeContract } from '../lib/gl.js'
-import { CONTRACT, sh } from '../lib/config.js'
+import { readContract, writeContract, waitForTxStatus, pollForChange } from '../lib/gl.js'
+import { CONTRACT, sh, genToWei, weiToGen } from '../lib/config.js'
 
-export default function Admin({ account, connected, onConnect, notify, admins, loadAdmins, isOwner, markets, loadMarkets }) {
+export default function Admin({ account, connected, onConnect, notify, admins, loadAdmins, isOwner, markets, loadMarkets, solvency, loadSolvency }) {
   const [input,   setInput]   = useState('')
   const [adding,  setAdding]  = useState(false)
   const [removing,setRemoving]= useState('')
   const [createModal, setCreateModal] = useState(false)
   const [creatingMarket, setCreatingMarket] = useState(false)
   const [schedBusy, setSchedBusy] = useState({})
+  const [withdrawAmount, setWithdrawAmount] = useState('')
+  const [withdrawing, setWithdrawing] = useState(false)
 
   if (!connected) {
     return (
@@ -46,8 +48,13 @@ export default function Admin({ account, connected, onConnect, notify, admins, l
     setAdding(true)
     notify('Adding admin…','ok')
     try {
-      await writeContract(CONTRACT, account, 'admin_add', [addr])
-      await new Promise(r => setTimeout(r, 4000))
+      const hash = await writeContract(CONTRACT, account, 'admin_add', [addr])
+      const status = await waitForTxStatus(hash)
+      if (!status || status.includes('ERROR') || status === 'CANCELED' || status === 'UNDETERMINED') throw new Error('Admin transaction did not complete')
+      await pollForChange(async () => {
+        const raw = await readContract(CONTRACT, 'get_admins', [])
+        try { return JSON.parse(raw || '[]').map(a => String(a).toLowerCase()).includes(addr) } catch (e) { return false }
+      }, { intervalMs: 2000, timeoutMs: 30000 })
       await loadAdmins()
       setInput('')
       notify('Admin added ✓','ok')
@@ -59,15 +66,20 @@ export default function Admin({ account, connected, onConnect, notify, admins, l
     setRemoving(addr)
     notify('Removing admin…','ok')
     try {
-      await writeContract(CONTRACT, account, 'admin_remove', [addr])
-      await new Promise(r => setTimeout(r, 4000))
+      const hash = await writeContract(CONTRACT, account, 'admin_remove', [addr])
+      const status = await waitForTxStatus(hash)
+      if (!status || status.includes('ERROR') || status === 'CANCELED' || status === 'UNDETERMINED') throw new Error('Admin transaction did not complete')
+      await pollForChange(async () => {
+        const raw = await readContract(CONTRACT, 'get_admins', [])
+        try { return !JSON.parse(raw || '[]').map(a => String(a).toLowerCase()).includes(addr) } catch (e) { return false }
+      }, { intervalMs: 2000, timeoutMs: 30000 })
       await loadAdmins()
       notify('Admin removed ✓','ok')
     } catch(e) { notify(e.message,'err') }
     finally { setRemoving('') }
   }
 
-  const createMarket = async (q, outcomes, url, dl) => {
+  const createMarket = async (q, outcomes, url, dl, deadlineTs) => {
     setCreatingMarket(true)
     notify('Creating market…','ok')
     try {
@@ -76,7 +88,9 @@ export default function Admin({ account, connected, onConnect, notify, admins, l
 
       // dl arrives already fully computed as an absolute UTC date string
       // by toAbsoluteDeadline() in CreateModal, use it directly.
-      const hash = await writeContract(CONTRACT, account, 'create_market', [q, outcomes, url, dl, 0], false, 500000000000000000n)
+      const hash = await writeContract(CONTRACT, account, 'create_market', [q, outcomes, url, dl, deadlineTs], false, 500000000000000000n)
+      const status = await waitForTxStatus(hash)
+      if (!status || status.includes('ERROR') || status === 'CANCELED' || status === 'UNDETERMINED') throw new Error('Market creation transaction did not complete')
 
       let created = false
       const start = Date.now()
@@ -98,6 +112,29 @@ export default function Admin({ account, connected, onConnect, notify, admins, l
     finally { setCreatingMarket(false) }
   }
 
+  const withdraw = async () => {
+    let amount
+    try { amount = genToWei(withdrawAmount) } catch (e) { notify('Enter a valid GEN amount','err'); return }
+    if (amount <= 0n) { notify('Withdrawal amount must be greater than zero','err'); return }
+    setWithdrawing(true)
+    try {
+      const beforeRaw = await readContract(CONTRACT, 'get_solvency', [])
+      const beforeBalance = BigInt(JSON.parse(beforeRaw || '{}').balance_wei || 0)
+      const hash = await writeContract(CONTRACT, account, 'withdraw', [amount.toString()])
+      notify('Withdrawal submitted','ok')
+      const status = await waitForTxStatus(hash)
+      if (!status || status.includes('ERROR') || status === 'CANCELED' || status === 'UNDETERMINED') throw new Error('Withdrawal did not complete')
+      await pollForChange(async () => {
+        const raw = await readContract(CONTRACT, 'get_solvency', [])
+        try { return BigInt(JSON.parse(raw || '{}').balance_wei || 0) <= beforeBalance - amount } catch (e) { return false }
+      }, { intervalMs: 2500, timeoutMs: 60000 })
+      await loadSolvency()
+      setWithdrawAmount('')
+      notify('Withdrawal message committed; delivery runs at finalization','ok')
+    } catch (e) { notify(e.message,'err') }
+    finally { setWithdrawing(false) }
+  }
+
   const createScheduled = async (type) => {
     if (schedBusy[type]) return
     setSchedBusy(b => ({...b, [type]: true}))
@@ -106,12 +143,11 @@ export default function Admin({ account, connected, onConnect, notify, admins, l
       const beforeRaw = await readContract(CONTRACT, 'get_market_count', [])
       const before = parseInt(beforeRaw || '0')
 
-      const schedMs = { daily: 86400000, weekly: 86400000*7, monthly: 86400000*30 }
-      const deadlineStr = new Date(Date.now() + (schedMs[type] || 86400000)).toUTCString()
-      // Real current date, calculated the exact same reliable way as
-      // deadlineStr, the AI never guesses this, it's told the real value.
-      const currentDateStr = new Date().toUTCString()
-      await writeContract(CONTRACT, account, 'create_'+type+'_market', [deadlineStr, currentDateStr])
+      // The contract derives the authoritative deadline from deterministic
+      // transaction time; browser values are display-only and omitted.
+      const hash = await writeContract(CONTRACT, account, 'create_'+type+'_market', ['', ''])
+      const status = await waitForTxStatus(hash)
+      if (!status || status.includes('ERROR') || status === 'CANCELED' || status === 'UNDETERMINED') throw new Error('Scheduled market transaction did not complete')
 
       let created = false
       const start = Date.now()
@@ -153,6 +189,20 @@ export default function Admin({ account, connected, onConnect, notify, admins, l
             {schedBusy[t] ? 'Generating…' : '+ '+t.charAt(0).toUpperCase()+t.slice(1)}
           </button>
         ))}
+      </div>
+
+      <div className="filter-toolbar" style={{marginTop:16,display:'block'}}>
+        <div style={{fontFamily:'var(--head)',fontWeight:800,fontSize:16,color:'var(--text)',marginBottom:10}}>Custody solvency</div>
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:10,fontFamily:'var(--mono)',fontSize:12,color:'var(--text2)'}}>
+          <span>Balance: {weiToGen(solvency?.balance_wei || 0, 4)} GEN</span>
+          <span>Reserved: {weiToGen(solvency?.reserved_liabilities_wei || 0, 4)} GEN</span>
+          <span>Surplus: {weiToGen(solvency?.withdrawable_surplus_wei || 0, 4)} GEN</span>
+          <span>Committed outbound: {weiToGen(solvency?.committed_outbound_wei || 0, 4)} GEN</span>
+        </div>
+        <div style={{display:'flex',gap:8,marginTop:10}}>
+          <input type="number" min="0" step="0.0001" value={withdrawAmount} onChange={e=>setWithdrawAmount(e.target.value)} placeholder="Amount in GEN" style={{flex:1}} />
+          <button className="btn btn-primary btn-sm" disabled={withdrawing} onClick={withdraw}>{withdrawing ? 'Withdrawingâ€¦' : 'Withdraw surplus'}</button>
+        </div>
       </div>
 
       <div style={{fontFamily:'var(--head)',fontWeight:800,fontSize:16,color:'var(--text)',margin:'32px 0 14px'}}>Admins</div>
@@ -237,7 +287,8 @@ function CreateModal({ onCreate, onClose, creating }) {
     const match = dl.toLowerCase().match(/(\d+)\s*(min|hour|hr|day|week|wk|month|mo)/)
     if (match && parseInt(match[1]) < 1) { setErr('Deadline must be at least 1 minute from now'); return }
     setErr('')
-    onCreate(q, o, url, toAbsoluteDeadline(dl))
+    const absolute = toAbsoluteDeadline(dl)
+    onCreate(q, o, url, absolute, Math.floor(Date.parse(absolute) / 1000))
   }
 
   useEffect(() => {
