@@ -370,9 +370,28 @@ def test_source_rejects_memory_only_evidence_fallback_and_full_balance_withdraw(
 def test_source_covers_scheduled_deadlines_fees_and_game_bankroll_guards():
     source = Path("prediction_market.py").read_text(encoding="utf-8")
     assert "int(gl.message.value) != CREATION_FEE" in source
-    assert '"daily": (' in source and "86400, \"24 hours from contract time\"" in source
-    assert '"weekly": (' in source and "86400 * 7, \"7 days from contract time\"" in source
-    assert '"monthly": (' in source and "86400 * 30, \"30 days from contract time\"" in source
+    assert "def _create_scheduled_market" in source
+    assert '"daily": (' in source
+    assert '"weekly": (' in source
+    assert '"monthly": (' in source
+    assert '"ai_probs": probs' in source
+    assert 'probs = {"YES": 50, "NO": 50}' in source
     assert source.count("self._require_game_payout(") >= 3
     assert "EVIDENCE_UNAVAILABLE" in source
     assert "BEGIN UNTRUSTED EVIDENCE DATA" in source
+
+def test_weekly_scheduled_creation_is_deterministic(direct_vm, direct_deploy, direct_owner):
+    contract = direct_deploy("prediction_market.py")
+    direct_vm.warp("2026-08-15T12:00:00Z")
+    direct_vm.sender = _addr(contract, direct_owner)
+
+    contract.create_weekly_market("", "")
+
+    assert contract.get_market_count() == "1"
+    market = json.loads(contract.get_market(0))
+    assert market["status"] == "OPEN"
+    assert market["schedule_type"] == "weekly"
+    assert market["outcomes"] == ["YES", "NO"]
+    assert market["ai_probs"] == [50, 50]
+    assert market["deadline_ts"] == 1787400000
+    assert market["evidence_url"].startswith("https://")

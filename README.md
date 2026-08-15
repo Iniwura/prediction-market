@@ -30,7 +30,7 @@ Scheduled daily, weekly, and monthly market creation is owner/admin-gated. The c
 
 ## Contract
 
-**Address:** `0x3394DEC637eFf4836712ACfa74c0b054885539d8`
+**Address:** `0x434a71EE1E6D139B62Ea9E4728d4fBCdBC793ABf`
 **Network:** GenLayer Bradbury Testnet
 **Source:** [`prediction_market.py`](./prediction_market.py)
 

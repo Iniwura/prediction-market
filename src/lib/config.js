@@ -1,4 +1,4 @@
-export const CONTRACT  = '0x3394DEC637eFf4836712ACfa74c0b054885539d8'
+export const CONTRACT  = '0x434a71EE1E6D139B62Ea9E4728d4fBCdBC793ABf'
 export const CHAIN_ID  = '0x107D'
 export const RPC_URL   = 'https://rpc-bradbury.genlayer.com'
 export const EXPLORER  = 'https://explorer-bradbury.genlayer.com'
