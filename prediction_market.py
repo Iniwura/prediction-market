@@ -656,27 +656,114 @@ class PredictionMarket(gl.Contract):
         self.market_count = u64(mid + 1)
 
     def _create_scheduled_market(self, kind: str, current_date_note: str):
+        # Scheduled creation must be deterministic because the generated
+        # market is written directly to consensus state. Earlier versions
+        # generated question/outcomes/evidence with an LLM inside this write;
+        # the leader could execute successfully while validators produced
+        # DETERMINISTIC_VIOLATION and the transaction became UNDETERMINED.
         if not self._is_admin_or_owner(self._addr()):
             raise gl.vm.UserError("Only the owner or an admin can generate scheduled markets")
+
         specs = {
             "daily": (
-                86400, "24 hours from contract time",
-                "Generate a fresh daily prediction market question about crypto, Web3, or DeFi. It will resolve within 24 hours using public data. You may reference today, but do not restate the deadline time.",
-                [("a specific altcoin's price movement (not BTC or ETH)", "crypto"), ("protocol TVL movement", "crypto"), ("breaking crypto news", "crypto"), ("a security incident or exploit", "crypto"), ("a live sports match or event result", "sports")],
+                86400,
+                "24 hours from contract time",
+                [
+                    (
+                        "Will Solana (SOL) have a positive 24-hour USD price change at the daily market deadline?",
+                        "https://www.coingecko.com/en/coins/solana",
+                        "crypto",
+                    ),
+                    (
+                        "Will Ethereum (ETH) have a positive 24-hour USD price change at the daily market deadline?",
+                        "https://www.coingecko.com/en/coins/ethereum",
+                        "crypto",
+                    ),
+                    (
+                        "Will Bitcoin (BTC) have a positive 24-hour USD price change at the daily market deadline?",
+                        "https://www.coingecko.com/en/coins/bitcoin",
+                        "crypto",
+                    ),
+                ],
             ),
             "weekly": (
-                86400 * 7, "7 days from contract time",
-                "Generate a weekly prediction market question about crypto or DeFi. It will resolve within 7 days using public data. You may reference this week.",
-                [("a major altcoin's price range this week", "crypto"), ("DeFi protocol performance", "crypto"), ("an upcoming protocol launch", "crypto"), ("a live DAO governance vote", "crypto"), ("exchange trading volumes", "crypto"), ("an upcoming major sports fixture this week", "sports")],
+                86400 * 7,
+                "7 days from contract time",
+                [
+                    (
+                        "Will Solana (SOL) have a positive 7-day USD price change at the weekly market deadline?",
+                        "https://www.coingecko.com/en/coins/solana",
+                        "crypto",
+                    ),
+                    (
+                        "Will Ethereum (ETH) have a positive 7-day USD price change at the weekly market deadline?",
+                        "https://www.coingecko.com/en/coins/ethereum",
+                        "crypto",
+                    ),
+                    (
+                        "Will Bitcoin (BTC) have a positive 7-day USD price change at the weekly market deadline?",
+                        "https://www.coingecko.com/en/coins/bitcoin",
+                        "crypto",
+                    ),
+                ],
             ),
             "monthly": (
-                86400 * 30, "30 days from contract time",
-                "Generate a monthly prediction market question about crypto macro trends. It will resolve within 30 days using public data. You may reference this month.",
-                [("ETH or BTC price milestone this month", "crypto"), ("a major altcoin's monthly performance", "crypto"), ("a protocol upgrade or major release", "crypto"), ("a regulatory decision", "crypto"), ("institutional crypto adoption news", "crypto"), ("DeFi TVL milestone", "crypto"), ("a major sports tournament or league outcome this month", "sports")],
+                86400 * 30,
+                "30 days from contract time",
+                [
+                    (
+                        "Will Bitcoin (BTC) have a positive 30-day USD price change at the monthly market deadline?",
+                        "https://www.coingecko.com/en/coins/bitcoin",
+                        "crypto",
+                    ),
+                    (
+                        "Will Ethereum (ETH) have a positive 30-day USD price change at the monthly market deadline?",
+                        "https://www.coingecko.com/en/coins/ethereum",
+                        "crypto",
+                    ),
+                    (
+                        "Will Solana (SOL) have a positive 30-day USD price change at the monthly market deadline?",
+                        "https://www.coingecko.com/en/coins/solana",
+                        "crypto",
+                    ),
+                ],
             ),
         }
-        duration, deadline_str, prompt, topics = specs[kind]
-        self._ai_generate_market(prompt, topics, deadline_str, kind, current_date_note, self._now() + duration)
+
+        if kind not in specs:
+            raise gl.vm.UserError("Unknown schedule type")
+
+        duration, deadline_note, templates = specs[kind]
+        now = self._now()
+        template_index = int(self.market_count) % len(templates)
+        question, evidence_url, category = templates[template_index]
+
+        outcomes = ["YES", "NO"]
+        probs = {"YES": 50, "NO": 50}
+        mid = int(self.market_count)
+
+        self._save_market(mid, {
+            "question": question,
+            "outcomes": outcomes,
+            "evidence_url": evidence_url,
+            "deadline_note": deadline_note,
+            "deadline_ts": now + duration,
+            "schedule_type": kind,
+            "category": category,
+            "status": "OPEN",
+            "outcome_winner": "",
+            "resolution_note": "",
+            "winner_liability": 0,
+            "ai_probs": probs,
+            "ai_reasoning": "",
+            "pools": {"YES": 0, "NO": 0},
+            "bet_counts": {"YES": 0, "NO": 0},
+            "bets": {},
+            "created_at": str(now),
+        })
+
+        self.market_ids.append(str(mid))
+        self.market_count = u64(mid + 1)
 
     @gl.public.write
     def create_daily_market(self, deadline_note: str = "", current_date_note: str = ""):
