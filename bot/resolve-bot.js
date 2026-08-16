@@ -52,6 +52,37 @@ async function getMarkets() {
   return Array.isArray(markets) ? markets : []
 }
 
+async function waitForOpenScheduledMarket(type, timeoutMs = 60000) {
+  const started = Date.now()
+
+  while (Date.now() - started < timeoutMs) {
+    let markets = []
+    try {
+      markets = await getMarkets()
+    } catch (error) {
+      console.warn(`${type}: state visibility read failed, retrying: ${error.message || error}`)
+    }
+    const visible = markets.some(
+      m => m.schedule_type === type && m.status === 'OPEN'
+    )
+
+    if (visible) {
+      console.log(`${type}: OPEN market confirmed on-chain`)
+      return
+    }
+
+    const elapsed = Math.floor((Date.now() - started) / 1000)
+    console.log(`${type}: waiting for state visibility (${elapsed}s/${Math.floor(timeoutMs / 1000)}s)`)
+    const remaining = timeoutMs - (Date.now() - started)
+    if (remaining <= 0) break
+    await sleep(Math.min(3000, remaining))
+  }
+
+  throw new Error(
+    `${type} transaction was accepted but no OPEN ${type} market is visible after ${timeoutMs}ms`
+  )
+}
+
 async function waitForAccepted(hash, label, timeoutMs = 180000) {
   const started = Date.now()
   let lastStatus = ''
@@ -173,20 +204,8 @@ async function keepScheduledMarketsRunning() {
       `create ${type} market`
     )
 
-    // Verify authoritative state before moving to the next type.
-    const refreshed = await getMarkets()
-
-    const created = refreshed.some(
-      m => m.schedule_type === type && m.status === 'OPEN'
-    )
-
-    if (!created) {
-      throw new Error(
-        `${type} transaction was accepted but no OPEN ${type} market is visible`
-      )
-    }
-
-    console.log(`${type}: OPEN market confirmed on-chain`)
+    console.log(`${type}: accepted, waiting for state visibility`)
+    await waitForOpenScheduledMarket(type)
   }
 }
 
