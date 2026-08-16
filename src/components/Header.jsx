@@ -33,7 +33,7 @@ const NOTIF_ICON = {
   cancelled: { glyph: '!', color: 'var(--muted)' },
 }
 
-export default function Header({ account, connected, genBalWei, theme, onThemeToggle, onConnect, onDisconnect, page, onNav, notifications=[], onMarkNotifsRead, isOwner }) {
+export default function Header({ account, connected, genBalWei, theme, onThemeToggle, onConnect, onDisconnect, page, onNav, notifications=[], onMarkNotifsRead, canManage }) {
   const [menuOpen,  setMenuOpen]  = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
   const notifRef = useRef(null)
@@ -41,7 +41,7 @@ export default function Header({ account, connected, genBalWei, theme, onThemeTo
   const pages = [
     {key:'home',label:'Home'},{key:'markets',label:'Markets'},
     {key:'games',label:'Games'},{key:'leaderboard',label:'Rankings'},{key:'profile',label:'Profile'},
-    ...(isOwner ? [{key:'admin',label:'Admin'}] : []),
+    ...(canManage ? [{key:'admin',label:'Admin'}] : []),
   ]
   const go = (key) => { onNav(key); setMenuOpen(false) }
   const unread = notifications.filter(n => !n.read).length

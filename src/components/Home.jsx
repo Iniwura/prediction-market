@@ -22,8 +22,8 @@ export default function Home({ markets, connected, onConnect, goTo }) {
             <span className="home-title-gradient">powered by AI consensus</span>
           </h1>
           <p className="home-sub">
-            Make predictions on crypto and Web3 events. An AI referee fetches live evidence,
-            multiple validators reach consensus on-chain, no oracle, no admin key.
+            Make predictions on crypto and Web3 events. An AI referee fetches bounded live evidence,
+            multiple validators reach consensus on-chain, no oracle, no admin-controlled outcome.
           </p>
           <div className="home-btns">
             <button className="btn btn-primary" onClick={() => goTo('markets')}>Browse Markets</button>
@@ -37,9 +37,9 @@ export default function Home({ markets, connected, onConnect, goTo }) {
         <div className="home-divider"><span>How it works</span></div>
         <div className="how-grid">
           {[
-            { n:'01', color:'var(--indigo)', title:'Create a Market', desc:'Post a question with outcomes and a deadline. Provide an evidence URL so the AI knows where to look when resolving.' },
-            { n:'02', color:'var(--violet)', title:'AI Sets the Odds', desc:'prompt_non_comparative consensus, validators independently verify the AI-set probabilities before the market opens.' },
-            { n:'03', color:'var(--teal)',   title:'AI Resolves On-chain', desc:'Anyone calls resolve after the deadline. The AI fetches the evidence URL, validators use strict_eq to agree on the winner.' },
+            { n:'01', color:'var(--indigo)', title:'Create a Market', desc:'Post a question with outcomes and a deadline. Provide up to 3 ordered HTTPS evidence sources for later resolution.' },
+            { n:'02', color:'var(--violet)', title:'Start with Equal Probabilities', desc:'New markets begin with deterministic equal probabilities. Refresh odds later with AI using bounded live evidence.' },
+            { n:'03', color:'var(--teal)',   title:'AI Resolves On-chain', desc:'Anyone calls resolve after the deadline. The referee uses lightweight evidence and comparative consensus; inconclusive evidence stays PENDING.' },
           ].map(s => (
             <div key={s.n} className="how-step">
               <div className="how-num" style={{color:s.color}}>{s.n}</div>
@@ -105,14 +105,14 @@ export default function Home({ markets, connected, onConnect, goTo }) {
           <div className="consensus-row">
             <span className="consensus-fn">create_market</span>
             <span className="consensus-arrow">→</span>
-            <span className="consensus-method pm">prompt_non_comparative</span>
-            <span className="consensus-note">validators verify AI-set odds</span>
+            <span className="consensus-method det">deterministic</span>
+            <span className="consensus-note">deterministic initial probabilities</span>
           </div>
           <div className="consensus-row">
             <span className="consensus-fn">resolve_market</span>
             <span className="consensus-arrow">→</span>
-            <span className="consensus-method se">strict_eq</span>
-            <span className="consensus-note">all validators must agree on winner</span>
+            <span className="consensus-method se">prompt_comparative</span>
+            <span className="consensus-note">winner is critical; reasoning may differ</span>
           </div>
           <div className="consensus-row">
             <span className="consensus-fn">play_coinflip</span>

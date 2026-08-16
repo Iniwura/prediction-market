@@ -264,7 +264,7 @@ export default function App() {
           onConnect={connect} onDisconnect={disconnect}
           page={page} onNav={setPage}
           notifications={notifications} onMarkNotifsRead={markNotifsRead}
-          isOwner={sharedProps.isOwner}
+          canManage={sharedProps.canManage}
         />
 
         {page === 'home'        && <Home        {...sharedProps} />}
@@ -272,7 +272,7 @@ export default function App() {
         {page === 'games'       && <Games       {...sharedProps} />}
         {page === 'leaderboard' && <Leaderboard {...sharedProps} />}
         {page === 'profile'     && <Profile     {...sharedProps} />}
-        {page === 'admin' && sharedProps.isOwner && <Admin {...sharedProps} />}
+        {page === 'admin' && sharedProps.canManage && <Admin {...sharedProps} />}
 
         <Toast message={toast.msg} type={toast.type} onClear={() => setToast({ msg: '', type: 'ok' })} />
       </div>

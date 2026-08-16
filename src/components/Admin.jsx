@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react'
 import { readContract, writeContract, waitForTxStatus, pollForChange } from '../lib/gl.js'
 import { CONTRACT, sh, genToWei, weiToGen } from '../lib/config.js'
 
-export default function Admin({ account, connected, onConnect, notify, admins, loadAdmins, isOwner, markets, loadMarkets, solvency, loadSolvency }) {
+export default function Admin({ account, connected, onConnect, notify, admins, loadAdmins, isOwner, isAdmin, canManage, markets, loadMarkets, solvency, loadSolvency }) {
   const [input,   setInput]   = useState('')
   const [adding,  setAdding]  = useState(false)
   const [removing,setRemoving]= useState('')
@@ -11,6 +11,7 @@ export default function Admin({ account, connected, onConnect, notify, admins, l
   const [schedBusy, setSchedBusy] = useState({})
   const [withdrawAmount, setWithdrawAmount] = useState('')
   const [withdrawing, setWithdrawing] = useState(false)
+  const hasManageAccess = Boolean(canManage || isOwner || isAdmin)
 
   if (!connected) {
     return (
@@ -23,25 +24,26 @@ export default function Admin({ account, connected, onConnect, notify, admins, l
             </svg>
           </div>
           <div className="gate-title">Connect your wallet</div>
-          <div className="gate-sub">Only the contract owner can manage admins.</div>
+          <div className="gate-sub">Connect a wallet with owner or admin access to manage markets.</div>
           <button className="btn btn-primary" onClick={onConnect}>Connect Wallet</button>
         </div>
       </div>
     )
   }
 
-  if (!isOwner) {
+  if (!hasManageAccess) {
     return (
       <div className="wrap">
         <div className="gate">
-          <div className="gate-title">Owner only</div>
-          <div className="gate-sub">This page is only visible to the contract owner.</div>
+          <div className="gate-title">Management access required</div>
+          <div className="gate-sub">This page is available to the contract owner and authorized admins.</div>
         </div>
       </div>
     )
   }
 
   const addAdmin = async () => {
+    if (!isOwner) { notify('Only the contract owner can manage admins','err'); return }
     const addr = input.trim().toLowerCase()
     if (!addr.startsWith('0x') || addr.length !== 42) { notify('Enter a valid wallet address','err'); return }
     if (admins.includes(addr)) { notify('Already an admin','err'); return }
@@ -63,6 +65,7 @@ export default function Admin({ account, connected, onConnect, notify, admins, l
   }
 
   const removeAdmin = async (addr) => {
+    if (!isOwner) { notify('Only the contract owner can manage admins','err'); return }
     setRemoving(addr)
     notify('Removing admin…','ok')
     try {
@@ -113,6 +116,7 @@ export default function Admin({ account, connected, onConnect, notify, admins, l
   }
 
   const withdraw = async () => {
+    if (!isOwner) { notify('Only the contract owner can withdraw funds','err'); return }
     let amount
     try { amount = genToWei(withdrawAmount) } catch (e) { notify('Enter a valid GEN amount','err'); return }
     if (amount <= 0n) { notify('Withdrawal amount must be greater than zero','err'); return }
@@ -170,7 +174,10 @@ export default function Admin({ account, connected, onConnect, notify, admins, l
   return (
     <div className="wrap">
       <div className="page-head">
-        <div className="page-title">Admin</div>
+        <div>
+          <div className="page-title">Market administration</div>
+          <div style={{fontSize:12,color:'var(--muted)',marginTop:4}}>Owners and admins can create markets; resolution and cancellation remain governed by the contract.</div>
+        </div>
       </div>
 
       <div className="page-head" style={{padding:'0 0 14px'}}>
@@ -191,6 +198,7 @@ export default function Admin({ account, connected, onConnect, notify, admins, l
         ))}
       </div>
 
+      {isOwner && <>
       <div className="filter-toolbar" style={{marginTop:16,display:'block'}}>
         <div style={{fontFamily:'var(--head)',fontWeight:800,fontSize:16,color:'var(--text)',marginBottom:10}}>Custody solvency</div>
         <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fit,minmax(150px,1fr))',gap:10,fontFamily:'var(--mono)',fontSize:12,color:'var(--text2)'}}>
@@ -251,6 +259,11 @@ export default function Admin({ account, connected, onConnect, notify, admins, l
           ))}
         </div>
       )}
+      </>}
+
+      {!isOwner && <div className="filter-toolbar" style={{marginTop:16}}>
+        <div style={{fontSize:12,color:'var(--muted)',lineHeight:1.6}}>Owner-only custody and admin-management controls are hidden for admin wallets. You can still create markets here; eligible resolve and cancel controls appear on the Markets page.</div>
+      </div>}
 
       {createModal && <CreateModal onCreate={createMarket} onClose={()=>setCreateModal(false)} creating={creatingMarket}/>}
     </div>
@@ -282,8 +295,11 @@ function CreateModal({ onCreate, onClose, creating }) {
 
   const submit = () => {
     if (!q.trim())   { setErr('Question is required'); return }
-    if (!url.trim()) { setErr('Evidence URL is required, the AI needs somewhere to look when resolving'); return }
-    if (!url.startsWith('http')) { setErr('Evidence URL must start with https://'); return }
+    const sources = url.split('|').map(s => s.trim()).filter(Boolean)
+    if (sources.length === 0) { setErr('At least one HTTPS evidence source is required for later resolution'); return }
+    if (sources.length > 3) { setErr('Use no more than 3 evidence sources separated by |'); return }
+    const invalid = sources.find(source => !/^https:\/\//i.test(source))
+    if (invalid) { setErr('Every evidence source must use https://'); return }
     const match = dl.toLowerCase().match(/(\d+)\s*(min|hour|hr|day|week|wk|month|mo)/)
     if (match && parseInt(match[1]) < 1) { setErr('Deadline must be at least 1 minute from now'); return }
     setErr('')
@@ -295,8 +311,8 @@ function CreateModal({ onCreate, onClose, creating }) {
     if (!creating) { setStage(0); return }
     const stages = [
       'Submitting to GenLayer…',
-      'Validators reaching consensus…',
-      'AI setting opening odds…',
+      'Confirming transaction…',
+      'Waiting for state finalization…',
       'Almost there…',
     ]
     let i = 0
@@ -304,7 +320,7 @@ function CreateModal({ onCreate, onClose, creating }) {
     return () => clearInterval(id)
   }, [creating])
 
-  const stageLabels = ['Submitting to GenLayer…','Validators reaching consensus…','AI setting opening odds…','Almost there…']
+  const stageLabels = ['Submitting to GenLayer…','Confirming transaction…','Waiting for state finalization…','Almost there…']
 
   return (
     <div className="mbg show" onClick={e=>e.target===e.currentTarget && !creating && onClose()}>
@@ -315,7 +331,7 @@ function CreateModal({ onCreate, onClose, creating }) {
             <div style={{fontSize:15,fontWeight:700,color:'var(--text)',marginBottom:6}}>Creating market</div>
             <div style={{fontSize:12.5,color:'var(--text3)',fontFamily:'var(--mono)'}}>{stageLabels[stage]}</div>
             <div style={{fontSize:10.5,color:'var(--muted)',marginTop:14,lineHeight:1.6}}>
-              This can take up to 3 minutes, AI consensus across validators takes time.<br/>Please don't close this window.
+              This can take up to 3 minutes while the transaction is accepted and state becomes visible.<br/>Please don't close this window.
             </div>
           </div>
         ) : (
@@ -327,10 +343,10 @@ function CreateModal({ onCreate, onClose, creating }) {
         <div className="mfield"><label>Question</label><input value={q} onChange={e=>{setQ(e.target.value);setErr('')}} placeholder="Will ETH exceed $3,000 this week?"/></div>
         <div className="mfield"><label>Outcomes (comma separated)</label><input value={o} onChange={e=>setO(e.target.value)} placeholder="YES,NO"/></div>
         <div className="mfield">
-          <label>Evidence URL <span style={{color:'var(--red)',fontSize:10}}>required</span></label>
-          <input value={url} onChange={e=>{setUrl(e.target.value);setErr('')}} placeholder="https://coingecko.com/en/coins/ethereum"/>
+          <label>Evidence sources <span style={{color:'var(--red)',fontSize:10}}>required</span></label>
+          <input value={url} onChange={e=>{setUrl(e.target.value);setErr('')}} placeholder="https://coingecko.com/en/coins/ethereum|https://..."/>
           <div style={{fontSize:10,color:'var(--muted)',marginTop:5,lineHeight:1.6}}>
-            Where can this be verified when the deadline passes? Price question: CoinGecko or CoinMarketCap. Sports: Wikipedia or official site. News: CoinDesk or Reuters.
+            Add 1–3 HTTPS sources separated by <span style={{fontFamily:'var(--mono)'}}>|</span>. The first source is primary; later sources corroborate or act as fallback. Single URLs remain supported.
           </div>
         </div>
         <div className="mfield">
@@ -351,7 +367,7 @@ function CreateModal({ onCreate, onClose, creating }) {
         </div>
         {err && <div style={{fontSize:12,color:'var(--red)',marginBottom:12,padding:'8px 12px',background:'var(--red-dim)',borderRadius:6,border:'1px solid rgba(244,63,94,.2)'}}>{err}</div>}
         <div style={{fontSize:11,color:'var(--muted)',marginBottom:16,lineHeight:1.6,padding:'8px 12px',background:'var(--bg2)',borderRadius:6}}>
-          AI sets opening odds when the market is created. Anyone can call Resolve once the deadline passes.
+          Opening probabilities start as deterministic equal shares. You can refresh them later with AI using live evidence. Anyone can call Resolve once the deadline passes.
           <br/>
           <span style={{color:'var(--amber)',fontWeight:700}}>Creation fee: {feeDisplay} GEN</span>, retained by the contract.
         </div>
