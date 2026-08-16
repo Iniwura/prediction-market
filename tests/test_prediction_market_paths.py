@@ -59,6 +59,14 @@ def _fund(contract, direct_vm, sender, amount):
     direct_vm.value = 0
 
 
+def _mock_resolution(direct_vm, winner, body="The evidence supports the result."):
+    direct_vm.mock_web("example.com", {"status": 200, "body": body})
+    direct_vm.mock_llm(
+        "impartial prediction-market referee",
+        json.dumps({"winner": winner, "reasoning": "The evidence supports this result."}),
+    )
+
+
 def test_place_bet_adds_exact_reserved_liability(direct_vm, direct_deploy, direct_alice):
     contract = direct_deploy("prediction_market.py")
     direct_vm.warp("2026-08-10T12:00:00Z")
@@ -146,6 +154,78 @@ def test_resolution_requires_deadline_before_any_evidence_call(direct_vm, direct
     _seed_market(contract, 1786363200)
     with direct_vm.expect_revert("Market deadline has not passed"):
         contract.resolve_market(0)
+
+
+def test_pending_resolution_leaves_market_open_and_reserve_unchanged(
+    direct_vm, direct_deploy, direct_owner, direct_alice, direct_bob
+):
+    contract = direct_deploy("prediction_market.py")
+    alice = _addr(contract, direct_alice)
+    bob = _addr(contract, direct_bob)
+    _seed_market(contract, 1786363200, bets={
+        alice.as_hex.lower(): {"outcome": "YES", "amount": GEN, "claimed": False},
+        bob.as_hex.lower(): {"outcome": "NO", "amount": GEN, "claimed": False},
+    })
+    _fund(contract, direct_vm, direct_owner, 2 * GEN)
+    direct_vm.warp("2026-08-10T12:00:01Z")
+    _mock_resolution(direct_vm, "PENDING", "The event is still in progress.")
+
+    with direct_vm.expect_revert("Settlement is pending"):
+        contract.resolve_market(0)
+
+    assert json.loads(contract.get_market(0))["status"] == "OPEN"
+    assert int(contract.reserved_liabilities) == 2 * GEN
+
+
+@pytest.mark.parametrize("winner", ["YES", "NO"])
+def test_resolution_uses_comparative_winner_and_recalculates_liability(
+    direct_vm, direct_deploy, direct_owner, direct_alice, direct_bob, winner
+):
+    contract = direct_deploy("prediction_market.py")
+    alice = _addr(contract, direct_alice)
+    bob = _addr(contract, direct_bob)
+    _seed_market(contract, 1786363200, bets={
+        alice.as_hex.lower(): {"outcome": "YES", "amount": GEN, "claimed": False},
+        bob.as_hex.lower(): {"outcome": "NO", "amount": GEN, "claimed": False},
+    })
+    _fund(contract, direct_vm, direct_owner, 2 * GEN)
+    direct_vm.warp("2026-08-10T12:00:01Z")
+    _mock_resolution(direct_vm, winner)
+
+    contract.resolve_market(0)
+
+    market = json.loads(contract.get_market(0))
+    expected = contract._payout_for_winner(json.loads(contract.markets["0"]), winner, GEN)
+    assert market["status"] == "RESOLVED"
+    assert market["winner"] == winner
+    assert market["winner_liability"] == expected
+    assert int(contract.reserved_liabilities) == expected
+
+
+def test_invalid_accepted_winner_is_rejected_without_state_change(
+    direct_vm, direct_deploy, direct_owner, direct_alice, direct_bob, monkeypatch
+):
+    contract = direct_deploy("prediction_market.py")
+    alice = _addr(contract, direct_alice)
+    bob = _addr(contract, direct_bob)
+    _seed_market(contract, 1786363200, bets={
+        alice.as_hex.lower(): {"outcome": "YES", "amount": GEN, "claimed": False},
+        bob.as_hex.lower(): {"outcome": "NO", "amount": GEN, "claimed": False},
+    })
+    _fund(contract, direct_vm, direct_owner, 2 * GEN)
+    direct_vm.warp("2026-08-10T12:00:01Z")
+    module = _module(contract)
+    monkeypatch.setattr(
+        module.gl.eq_principle,
+        "prompt_comparative",
+        lambda fn, principle: {"winner": "MAYBE", "reasoning": "invalid"},
+    )
+
+    with direct_vm.expect_revert("Jury returned an invalid outcome"):
+        contract.resolve_market(0)
+
+    assert json.loads(contract.get_market(0))["status"] == "OPEN"
+    assert int(contract.reserved_liabilities) == 2 * GEN
 
 
 def test_cancellation_keeps_full_refund_reserve(direct_vm, direct_deploy, direct_alice, direct_owner):
@@ -379,6 +459,10 @@ def test_contract_source_has_permissionless_deadline_settlement_and_safe_orderin
     resolve = next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "resolve_market")
     resolve_text = ast.get_source_segment(source, resolve)
     assert "_require_deadline" in resolve_text
+    assert "strict_eq" not in resolve_text
+    assert "prompt_comparative" in resolve_text
+    assert '"winner"' in resolve_text and '"reasoning"' in resolve_text
+    assert resolve_text.index("_require_deadline") < resolve_text.index("prompt_comparative")
     assert "_is_admin_or_owner" not in resolve_text
     claim = ast.get_source_segment(source, next(n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name == "claim_winnings"))
     assert "_commit_bet_payout" in claim
@@ -415,7 +499,7 @@ def test_source_covers_scheduled_deadlines_fees_and_game_bankroll_guards():
     assert '"ai_probs": probs' in source
     assert 'probs = {"YES": 50, "NO": 50}' in source
     assert source.count("self._require_game_payout(") >= 3
-    assert "EVIDENCE_UNAVAILABLE" in source
+    assert "Evidence could not be fetched" in source
     assert "BEGIN UNTRUSTED EVIDENCE DATA" in source
 
 def test_weekly_scheduled_creation_is_deterministic(direct_vm, direct_deploy, direct_owner):
